@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-background text-gray-900 antialiased;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-400 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
+
+/* Selection */
+::selection {
+  @apply bg-yellow text-navy;
+}
+
+/* Focus Styles */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-navy;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom Components */
+.btn-primary {
+  @apply inline-flex items-center justify-center px-4 py-2 bg-navy text-white font-semibold rounded-lg hover:bg-navy-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-900 font-semibold rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center px-4 py-2 text-navy hover:bg-gray-100 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800;
+}
+
+.badge-success {
+  @apply bg-green-200 text-green-800;
+}
+
+.badge-warning {
+  @apply bg-yellow-light text-yellow-dark;
+}
+
+.badge-error {
+  @apply bg-red-200 text-red-800;
+}
+
+.badge-info {
+  @apply bg-blue-200 text-blue-800;
+}
+
+.card {
+  @apply bg-white rounded-lg p-6 shadow-card;
+}
+
+.card-hover {
+  @apply card hover:shadow-card-lg transition-shadow;
+}
+
+/* Form Elements */
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='date'],
+input[type='time'],
+textarea,
+select {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy focus:border-transparent transition-colors;
+}
+
+input[type='text']::placeholder,
+input[type='email']::placeholder,
+input[type='password']::placeholder,
+textarea::placeholder {
+  @apply text-gray-500;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  @apply w-4 h-4 accent-navy cursor-pointer;
+}
+
+/* Modal Backdrop */
+.modal-backdrop {
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+}
+
+.modal-content {
+  @apply bg-white rounded-lg shadow-card-lg max-w-lg w-full mx-4 animate-slide-up;
+}
+
+/* Toast Notifications */
+.toast-notification {
+  @apply fixed bottom-4 right-4 bg-white rounded-lg shadow-card-lg p-4 animate-slide-up z-50;
+}
+
+/* Accessibility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Placeholder States */
+.empty-state {
+  @apply flex flex-col items-center justify-center py-12 text-center;
+}
+
+.empty-state-icon {
+  @apply text-gray-400 mb-4;
+}
+
+.empty-state-title {
+  @apply text-lg font-semibold text-gray-900 mb-1;
+}
+
+.empty-state-text {
+  @apply text-sm text-gray-600;
+}
+
+/* Loading States */
+.skeleton {
+  @apply animate-pulse bg-gray-200 rounded;
+}
+
+.skeleton-text {
+  @apply skeleton h-4 w-full mb-2;
+}
+
+.skeleton-avatar {
+  @apply skeleton h-10 w-10 rounded-full;
+}

@@ -1,0 +1,119 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── HELPER FUNCTIONS ──────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isShipcubeDomain() {
+      return request.auth.token.email.matches('.*@shipcube\\.com');
+    }
+
+    function getUserDept() {
+      return request.auth.token.department;
+    }
+
+    function getRole() {
+      return request.auth.token.role;
+    }
+
+    function isHRorAdmin() {
+      return getRole() in ['super_admin', 'hr_admin'];
+    }
+
+    function isAllowedFileType() {
+      return request.resource.contentType.matches('image/(jpeg|png|gif|webp)') ||
+             request.resource.contentType == 'application/pdf' ||
+             request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+             request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+             request.resource.contentType == 'text/plain' ||
+             request.resource.contentType == 'text/markdown' ||
+             request.resource.contentType == 'application/zip';
+    }
+
+    function isUnder10MB() {
+      return request.resource.size < 10 * 1024 * 1024;
+    }
+
+    function isUnder2MB() {
+      return request.resource.size < 2 * 1024 * 1024;
+    }
+
+    // ─── AVATARS ───────────────────────────────────────────────────
+
+    match /avatars/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && isShipcubeDomain();
+      allow write: if isSignedIn() && isShipcubeDomain() &&
+                   request.auth.uid == uid &&
+                   request.resource.contentType.matches('image/.*') &&
+                   isUnder2MB();
+    }
+
+    // ─── CHAT ATTACHMENTS ──────────────────────────────────────────
+
+    match /chat-attachments/{channelId}/{messageId}/{filename} {
+      allow read: if isSignedIn() && isShipcubeDomain();
+      allow write: if isSignedIn() && isShipcubeDomain() &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── LONG MESSAGES (stored as .md files) ───────────────────────
+
+    match /long-messages/{channelId}/{messageId}/content.md {
+      allow read: if isSignedIn() && isShipcubeDomain();
+      allow write: if isSignedIn() && isShipcubeDomain() &&
+                   request.resource.size < 1 * 1024 * 1024; // 1MB text limit
+    }
+
+    // ─── DOCUMENTS: GENERAL ────────────────────────────────────────
+
+    match /documents/general/{allPaths=**} {
+      allow read: if isSignedIn() && isShipcubeDomain();
+      allow write: if isSignedIn() && isShipcubeDomain() &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── DOCUMENTS: AI TEAM ────────────────────────────────────────
+
+    match /documents/ai-team/{allPaths=**} {
+      allow read: if isSignedIn() && (getUserDept() == 'ai-team' || isHRorAdmin());
+      allow write: if isSignedIn() && (getUserDept() == 'ai-team' || isHRorAdmin()) &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── DOCUMENTS: MARKETING ──────────────────────────────────────
+
+    match /documents/marketing/{allPaths=**} {
+      allow read: if isSignedIn() && (getUserDept() == 'marketing' || isHRorAdmin());
+      allow write: if isSignedIn() && (getUserDept() == 'marketing' || isHRorAdmin()) &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── DOCUMENTS: FINANCE (RESTRICTED) ──────────────────────────
+
+    match /documents/finance/{allPaths=**} {
+      allow read: if isSignedIn() && (getUserDept() == 'finance' || isHRorAdmin());
+      allow write: if isSignedIn() && (getUserDept() == 'finance' || isHRorAdmin()) &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── DOCUMENTS: HR (MOST RESTRICTED) ──────────────────────────
+
+    match /documents/hr/{allPaths=**} {
+      allow read: if isSignedIn() && isHRorAdmin();
+      allow write: if isSignedIn() && isHRorAdmin() &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+
+    // ─── DOCUMENTS: LEAVE DOCUMENTS ────────────────────────────────
+
+    match /documents/leave-documents/{allPaths=**} {
+      allow read: if isSignedIn() && isShipcubeDomain();
+      allow write: if isSignedIn() && isShipcubeDomain() &&
+                   isAllowedFileType() && isUnder10MB();
+    }
+  }
+}
