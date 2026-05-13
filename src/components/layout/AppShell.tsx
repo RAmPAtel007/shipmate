@@ -13,12 +13,11 @@ interface AppShellProps {
 
 export function AppShell({ currentUser, children }: AppShellProps) {
   const pathname = usePathname();
-  // Derive active tab from first path segment
   const activeTab = pathname.split('/')[1] || 'home';
   const { total: unreadCount } = useUnreadCounts();
 
   return (
-    <div className="h-screen flex bg-[#F4F5F7] overflow-hidden">
+    <div className="h-screen flex bg-white overflow-hidden">
 
       {/* ── Desktop sidebar (md+) ────────────────────────────────── */}
       <div className="hidden md:flex md:flex-shrink-0">
@@ -55,11 +54,17 @@ export function AppShell({ currentUser, children }: AppShellProps) {
           </div>
         </header>
 
-        {/* Page content — scrollable */}
-        <main className="flex-1 overflow-y-auto">
+        {/* Page content — each page manages its own scroll */}
+        <main className="flex-1 overflow-hidden min-h-0">
           {children}
         </main>
 
         {/* Mobile bottom nav */}
         <div className="md:hidden flex-shrink-0">
-       
+          <MobileNav currentUser={currentUser} activeTab={activeTab} unreadCount={unreadCount} />
+        </div>
+
+      </div>
+    </div>
+  );
+}

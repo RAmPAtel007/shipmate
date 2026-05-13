@@ -8,16 +8,18 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    function isShipcubeDomain() {
-      return request.auth.token.email.matches('.*@shipcube\\.com');
-    }
-
-    function getUserDept() {
-      return request.auth.token.department;
+    // Read the user doc from Firestore to get role + department.
+    // This mirrors the Firestore rules pattern so no custom claims are needed.
+    function userData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
     }
 
     function getRole() {
-      return request.auth.token.role;
+      return isSignedIn() ? userData().role : null;
+    }
+
+    function getUserDept() {
+      return isSignedIn() ? userData().department : null;
     }
 
     function isHRorAdmin() {
@@ -25,7 +27,7 @@ service firebase.storage {
     }
 
     function isAllowedFileType() {
-      return request.resource.contentType.matches('image/(jpeg|png|gif|webp)') ||
+      return request.resource.contentType.matches('image/.*') ||
              request.resource.contentType == 'application/pdf' ||
              request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
              request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
@@ -45,8 +47,8 @@ service firebase.storage {
     // ─── AVATARS ───────────────────────────────────────────────────
 
     match /avatars/{uid}/{allPaths=**} {
-      allow read: if isSignedIn() && isShipcubeDomain();
-      allow write: if isSignedIn() && isShipcubeDomain() &&
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() &&
                    request.auth.uid == uid &&
                    request.resource.contentType.matches('image/.*') &&
                    isUnder2MB();
@@ -55,25 +57,24 @@ service firebase.storage {
     // ─── CHAT ATTACHMENTS ──────────────────────────────────────────
 
     match /chat-attachments/{channelId}/{messageId}/{filename} {
-      allow read: if isSignedIn() && isShipcubeDomain();
-      allow write: if isSignedIn() && isShipcubeDomain() &&
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() &&
                    isAllowedFileType() && isUnder10MB();
     }
 
     // ─── LONG MESSAGES (stored as .md files) ───────────────────────
 
     match /long-messages/{channelId}/{messageId}/content.md {
-      allow read: if isSignedIn() && isShipcubeDomain();
-      allow write: if isSignedIn() && isShipcubeDomain() &&
-                   request.resource.size < 1 * 1024 * 1024; // 1MB text limit
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() &&
+                   request.resource.size < 1 * 1024 * 1024;
     }
 
-    // ─── DOCUMENTS: GENERAL ────────────────────────────────────────
+    // ─── DOCUMENTS: GENERAL (all employees) ────────────────────────
 
     match /documents/general/{allPaths=**} {
-      allow read: if isSignedIn() && isShipcubeDomain();
-      allow write: if isSignedIn() && isShipcubeDomain() &&
-                   isAllowedFileType() && isUnder10MB();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
     }
 
     // ─── DOCUMENTS: AI TEAM ────────────────────────────────────────
@@ -95,8 +96,8 @@ service firebase.storage {
     // ─── DOCUMENTS: FINANCE (RESTRICTED) ──────────────────────────
 
     match /documents/finance/{allPaths=**} {
-      allow read: if isSignedIn() && (getUserDept() == 'finance' || isHRorAdmin());
-      allow write: if isSignedIn() && (getUserDept() == 'finance' || isHRorAdmin()) &&
+      allow read: if isSignedIn() && isHRorAdmin();
+      allow write: if isSignedIn() && isHRorAdmin() &&
                    isAllowedFileType() && isUnder10MB();
     }
 
@@ -111,9 +112,9 @@ service firebase.storage {
     // ─── DOCUMENTS: LEAVE DOCUMENTS ────────────────────────────────
 
     match /documents/leave-documents/{allPaths=**} {
-      allow read: if isSignedIn() && isShipcubeDomain();
-      allow write: if isSignedIn() && isShipcubeDomain() &&
-                   isAllowedFileType() && isUnder10MB();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
     }
+
   }
 }

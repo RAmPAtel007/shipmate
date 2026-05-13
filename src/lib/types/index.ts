@@ -77,6 +77,7 @@ export interface Channel {
   departmentId?: Department;
   description?: string;
   members: string[];            // array of uids; for public channels this is everyone
+  participantNames?: Record<string, string>; // uid → name (for DMs)
   createdBy: string;            // uid
   isArchived: boolean;
   lastMessageAt?: Timestamp;
@@ -142,6 +143,7 @@ export interface LeaveRequest {
   reason: string;
   status: LeaveStatus;
   managerComment?: string;
+  adminMessage?: string;   // message from admin on approve or reject
   createdAt: Timestamp;
   decidedAt?: Timestamp;
 }
@@ -268,4 +270,5 @@ export interface QuickAction {
   label: string;
   icon: string;
   href?: string;
-  onClick?: () =
+  onClick?: () => void;
+}

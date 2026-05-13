@@ -15,7 +15,7 @@ import { formatDate, formatFileSize, getDepartmentLabel } from '@/lib/utils/form
 import { cn } from '@/lib/utils/cn';
 import {
   collection, addDoc, getDocs, deleteDoc, doc,
-  query, where, orderBy, serverTimestamp,
+  query, where, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import type { ShipmateDocument, DocumentFolder } from '@/lib/types';
@@ -91,6 +91,22 @@ function getFileColor(type: string): string {
   return 'text-gray-500';
 }
 
+function getFileBg(type: string): string {
+  if (type.startsWith('image/')) return 'bg-blue-50';
+  if (type === 'application/pdf') return 'bg-red-50';
+  if (type.includes('word')) return 'bg-blue-50';
+  if (type.includes('sheet') || type.includes('excel')) return 'bg-green-50';
+  return 'bg-gray-50';
+}
+
+function getFileExt(name: string, type: string): string {
+  const ext = name.split('.').pop()?.toUpperCase();
+  if (ext && ext.length <= 4) return ext;
+  if (type === 'application/pdf') return 'PDF';
+  if (type.startsWith('image/')) return type.split('/')[1]?.toUpperCase() ?? 'IMG';
+  return 'FILE';
+}
+
 // ── Upload zone ───────────────────────────────────────────────────────────────
 
 function UploadZone({
@@ -103,21 +119,32 @@ function UploadZone({
   userId: string;
 }) {
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ current: number; total: number; name: string; pct: number } | null>(null);
 
   const onDrop = useCallback(
-    async (files: File[]) => {
-      if (!files.length) return;
+    async (acceptedFiles: File[], rejectedFiles: any[]) => {
+      if (rejectedFiles.length > 0) {
+        const reasons = rejectedFiles.map(r => {
+          const err = r.errors?.[0];
+          if (err?.code === 'file-too-large') return `${r.file.name}: too large (max 10 MB)`;
+          if (err?.code === 'file-invalid-type') return `${r.file.name}: file type not allowed`;
+          return `${r.file.name}: rejected`;
+        });
+        toast.error(reasons[0]);
+      }
+      if (!acceptedFiles.length) return;
       setUploading(true);
       let successCount = 0;
 
-      for (const file of files) {
+      for (let i = 0; i < acceptedFiles.length; i++) {
+        const file = acceptedFiles[i];
         try {
-          setProgress(`Uploading ${file.name}…`);
+          setProgress({ current: i + 1, total: acceptedFiles.length, name: file.name, pct: 0 });
           const { url, storagePath } = await storageService.uploadDocument(
             folderId,
             file,
-            userId
+            userId,
+            pct => setProgress(p => p ? { ...p, pct } : null)
           );
           await addDoc(collection(db, 'documents'), {
             name: file.name,
@@ -128,7 +155,7 @@ function UploadZone({
             size: file.size,
             fileType: file.type,
             uploadedBy: userId,
-            uploaderName: '',   // filled server-side or via user lookup
+            uploaderName: '',
             createdAt: serverTimestamp(),
           });
           successCount++;
@@ -149,6 +176,7 @@ function UploadZone({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    disabled: uploading,
     maxSize: 10 * 1024 * 1024,
     accept: {
       'image/*': [],
@@ -165,22 +193,40 @@ function UploadZone({
     <div
       {...getRootProps()}
       className={cn(
-        'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+        'border-2 border-dashed rounded-xl p-5 text-center transition-colors',
+        uploading ? 'border-[#1B2B5E]/30 bg-[#1B2B5E]/3 cursor-default' :
         isDragActive
-          ? 'border-[#1B2B5E] bg-[#1B2B5E]/5'
-          : 'border-gray-200 hover:border-[#1B2B5E]/40 hover:bg-gray-50'
+          ? 'border-[#1B2B5E] bg-[#1B2B5E]/5 cursor-copy'
+          : 'border-gray-200 hover:border-[#1B2B5E]/40 hover:bg-gray-50 cursor-pointer'
       )}
     >
       <input {...getInputProps()} />
-      {uploading ? (
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-8 h-8 border-2 border-[#1B2B5E] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">{progress}</p>
+      {uploading && progress ? (
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-full max-w-xs">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+              <span className="truncate max-w-[200px]">{progress.name}</span>
+              <span className="flex-shrink-0 ml-2 tabular-nums">
+                {progress.total > 1 ? `${progress.current}/${progress.total} · ` : ''}{progress.pct}%
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#1B2B5E] rounded-full transition-all duration-150"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">
+            {progress.pct === 0 ? 'Starting upload…' : progress.pct < 100 ? 'Uploading…' : 'Saving…'}
+          </p>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-2">
-          <Upload size={24} className="text-gray-400" />
-          <p className="text-sm font-medium text-gray-700">
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center mb-1">
+            <Upload size={18} className="text-gray-400" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700">
             {isDragActive ? 'Drop files here' : 'Drag & drop or click to upload'}
           </p>
           <p className="text-xs text-gray-400">PDF, Word, Excel, images, ZIP · Max 10 MB</p>
@@ -203,17 +249,21 @@ function DocumentRow({
 }) {
   const FileIcon = getFileIcon(docItem.fileType ?? '');
   const iconColor = getFileColor(docItem.fileType ?? '');
+  const iconBg = getFileBg(docItem.fileType ?? '');
+  const ext = getFileExt(docItem.name, docItem.fileType ?? '');
 
   return (
-    <div className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl group transition-colors">
-      <div className="w-9 h-9 bg-gray-50 rounded-lg flex items-center justify-center flex-shrink-0 border border-gray-100">
-        <FileIcon size={18} className={iconColor} />
+    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 group transition-colors">
+      <div className={`w-10 h-10 ${iconBg} rounded-xl flex flex-col items-center justify-center flex-shrink-0`}>
+        <FileIcon size={16} className={iconColor} />
+        <span className={`text-[8px] font-bold mt-0.5 leading-none ${iconColor}`}>{ext}</span>
       </div>
 
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-800 truncate">{docItem.name}</p>
         <p className="text-xs text-gray-400">
           {formatFileSize(docItem.size ?? 0)} · {formatDate(docItem.createdAt as any)}
+          {docItem.uploaderName && ` · ${docItem.uploaderName}`}
         </p>
       </div>
 
@@ -222,7 +272,7 @@ function DocumentRow({
           href={docItem.downloadURL}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 hover:text-[#1B2B5E]"
+          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#1B2B5E] transition-colors"
           title="Download"
         >
           <Download size={14} />
@@ -230,7 +280,7 @@ function DocumentRow({
         {canDelete && (
           <button
             onClick={() => onDelete(docItem.id!, docItem.storagePath ?? '')}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
             title="Delete"
           >
             <Trash2 size={14} />
@@ -260,15 +310,23 @@ export default function DocumentsPage() {
     if (!selectedFolder) return;
     setLoading(true);
     try {
+      // No orderBy — avoids composite index requirement. Sort client-side.
       const q = query(
         collection(db, 'documents'),
         where('folder', '==', selectedFolder),
-        orderBy('createdAt', 'desc')
       );
       const snap = await getDocs(q);
-      setDocuments(snap.docs.map(d => ({ id: d.id, ...d.data() } as ShipmateDocument)));
-    } catch (err) {
-      console.error(err);
+      const docs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as ShipmateDocument))
+        .sort((a, b) => {
+          const ta = (a.createdAt as any)?.toMillis?.() ?? 0;
+          const tb = (b.createdAt as any)?.toMillis?.() ?? 0;
+          return tb - ta; // newest first
+        });
+      setDocuments(docs);
+    } catch (err: any) {
+      console.error('[loadDocuments]', err);
+      toast.error('Failed to load documents' + (err?.message ? `: ${err.message}` : ''));
     } finally {
       setLoading(false);
     }
@@ -422,4 +480,15 @@ export default function DocumentsPage() {
                 <DocumentRow
                   key={d.id}
                   doc={d}
-             
+                  canDelete={canDelete}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
-  query, where, orderBy, serverTimestamp, type DocumentData,
+  query, where, serverTimestamp, type DocumentData,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import type { ShipmateUser, Department } from '@/lib/types';
@@ -19,24 +19,26 @@ export const userService = {
   },
 
   async getAllUsers(): Promise<ShipmateUser[]> {
+    // Use a simple equality filter only — no orderBy on a different field,
+    // so no composite index is needed. Sort by name client-side.
     const q = query(
       collection(db, USERS),
-      where('status', '==', 'active'),
-      orderBy('name')
+      where('status', '==', 'active')
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => mapUser(d.id, d.data()));
+    const users = snap.docs.map(d => mapUser(d.id, d.data()));
+    return users.sort((a, b) => a.name.localeCompare(b.name));
   },
 
   async getUsersByDepartment(dept: Department): Promise<ShipmateUser[]> {
     const q = query(
       collection(db, USERS),
       where('department', '==', dept),
-      where('status', '==', 'active'),
-      orderBy('name')
+      where('status', '==', 'active')
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => mapUser(d.id, d.data()));
+    const users = snap.docs.map(d => mapUser(d.id, d.data()));
+    return users.sort((a, b) => a.name.localeCompare(b.name));
   },
 
   async createUser(uid: string, data: Partial<Omit<ShipmateUser, 'uid'>>): Promise<void> {

@@ -74,15 +74,55 @@ export const storageService = {
   async uploadDocument(
     folder: string,
     file: File,
-    userId: string
+    userId: string,
+    onProgress?: (pct: number) => void
   ): Promise<{ url: string; storagePath: string }> {
     validateFile(file);
     const timestamp = Date.now();
     const path = `documents/${folder}/${timestamp}_${file.name}`;
     const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file, { contentType: file.type });
-    const url = await getDownloadURL(storageRef);
-    return { url, storagePath: path };
+
+    return new Promise((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
+
+      // 60-second hard timeout — surfaces bucket / CORS / rules hangs
+      const timeout = setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error(
+          'Upload timed out after 60 s. Check that NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is set ' +
+          'correctly (e.g. your-project.appspot.com) and that Firebase Storage CORS is configured.'
+        ));
+      }, 60_000);
+
+      uploadTask.on(
+        'state_changed',
+        snapshot => {
+          const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress?.(pct);
+        },
+        error => {
+          clearTimeout(timeout);
+          // Map Firebase Storage error codes to human-readable messages
+          const msg: Record<string, string> = {
+            'storage/unauthorized':   'Upload blocked: check Firebase Storage rules.',
+            'storage/canceled':        'Upload cancelled.',
+            'storage/unknown':         'Unknown storage error. Check the browser console.',
+            'storage/quota-exceeded':  'Firebase Storage quota exceeded.',
+            'storage/retry-limit-exceeded': 'Upload failed after retries. Check your connection.',
+          };
+          reject(new Error(msg[error.code] ?? `Upload failed: ${error.message}`));
+        },
+        async () => {
+          clearTimeout(timeout);
+          try {
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve({ url, storagePath: path });
+          } catch (err: any) {
+            reject(new Error(`Failed to get download URL: ${err.message}`));
+          }
+        }
+      );
+    });
   },
 
   // ── Delete ───────────────────────────────────────────────────────────────

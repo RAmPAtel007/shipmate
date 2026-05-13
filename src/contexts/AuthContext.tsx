@@ -5,6 +5,7 @@ import type { User } from 'firebase/auth';
 import {
   onAuthStateChanged,
   signInWithGoogle,
+  signInWithEmail,
   signOut,
   getUserProfile,
 } from '@/lib/firebase/auth';
@@ -18,6 +19,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   signIn: () => Promise<void>;
+  signInAdmin: (email: string, password: string) => Promise<void>;
   signOutUser: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -30,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   error: null,
   signIn: async () => {},
+  signInAdmin: async () => {},
   signOutUser: async () => {},
   refreshUser: async () => {},
 });
@@ -94,6 +97,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const handleSignInAdmin = useCallback(async (email: string, password: string) => {
+    setError(null);
+    try {
+      const user = await signInWithEmail(email, password);
+      setCurrentUser(user);
+    } catch (err: any) {
+      const msg = err?.message ?? 'Sign in failed. Please try again.';
+      setError(msg);
+      throw err;
+    }
+  }, []);
+
   const handleSignOut = useCallback(async () => {
     await signOut();
     setCurrentUser(null);
@@ -119,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         signIn: handleSignIn,
+        signInAdmin: handleSignInAdmin,
         signOutUser: handleSignOut,
         refreshUser,
       }}

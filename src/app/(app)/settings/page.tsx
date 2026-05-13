@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   User, Bell, Shield, Users, ChevronRight,
   Camera, Save, Loader2, Eye, EyeOff,
@@ -255,7 +255,7 @@ function TeamSection() {
   }
 
   // Load on mount
-  useState(() => { loadUsers(); });
+  useEffect(() => { loadUsers(); }, []);
 
   function openEdit(user: ShipmateUser) {
     setEditingUser(user);

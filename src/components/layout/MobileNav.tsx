@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { Home, MessageSquare, Calendar, Users, MoreHorizontal } from 'lucide-react';
+import { Home, MessageSquare, Calendar, Users, Megaphone } from 'lucide-react';
 import type { ShipmateUser } from '@/lib/types';
 
 const TABS = [
-  { icon: Home,            label: 'Home',   href: '/home',     key: 'home' },
-  { icon: MessageSquare,   label: 'Chat',   href: '/chat',     key: 'chat' },
-  { icon: Calendar,        label: 'Leaves', href: '/leaves',   key: 'leaves' },
-  { icon: Users,           label: 'People', href: '/people',   key: 'people' },
-  { icon: MoreHorizontal,  label: 'More',   href: '/settings', key: 'settings' },
+  { icon: Home,          label: 'Home',    href: '/home',          key: 'home' },
+  { icon: MessageSquare, label: 'Chat',    href: '/chat',          key: 'chat' },
+  { icon: Calendar,      label: 'Leaves',  href: '/leaves',        key: 'leaves' },
+  { icon: Users,         label: 'People',  href: '/people',        key: 'people' },
+  { icon: Megaphone,     label: 'Updates', href: '/announcements', key: 'announcements' },
 ] as const;
 
 interface Props {
@@ -30,28 +30,27 @@ export function MobileNav({ currentUser, activeTab, unreadCount = 0 }: Props) {
             <Link
               key={key}
               href={href}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 px-1 transition-colors min-h-[52px] ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 transition-colors min-h-[60px] ${
                 isActive ? 'text-[#1B2B5E]' : 'text-gray-400 active:text-gray-600'
               }`}
             >
               <div className="relative">
                 <Icon
-                  size={22}
+                  size={25}
                   strokeWidth={isActive ? 2.5 : 1.8}
                   className={isActive ? 'text-[#1B2B5E]' : 'text-gray-400'}
                 />
                 {showBadge && (
-                  <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 bg-[#F5C518] text-[#1B2B5E] text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                  <span className="absolute -top-1.5 -right-2.5 min-w-[18px] h-[18px] bg-[#F5C518] text-[#1B2B5E] text-[10px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </div>
-              <span className={`text-[10px] font-medium leading-tight ${isActive ? 'text-[#1B2B5E]' : 'text-gray-400'}`}>
+              <span className={`text-[11px] font-semibold leading-tight ${isActive ? 'text-[#1B2B5E]' : 'text-gray-400'}`}>
                 {label}
               </span>
-              {/* Active underline dot */}
               {isActive && (
-                <div className="w-4 h-0.5 bg-[#F5C518] rounded-full" />
+                <div className="w-5 h-0.5 bg-[#F5C518] rounded-full" />
               )}
             </Link>
           );

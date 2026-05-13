@@ -147,10 +147,12 @@ export function looksLikeCode(text: string): boolean {
 /** Birthday countdown string */
 export function birthdayCountdown(birthdayMMDD: string): string {
   const [month, day] = birthdayMMDD.split('-').map(Number);
-  const now = new Date();
-  let next = new Date(now.getFullYear(), month - 1, day);
-  if (next < now) next = new Date(now.getFullYear() + 1, month - 1, day);
-  const diff = differenceInDays(next, now);
+  // Normalize both dates to midnight so differenceInDays is exact
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let next = new Date(today.getFullYear(), month - 1, day);
+  if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
+  const diff = differenceInDays(next, today);
   if (diff === 0) return '🎂 Today!';
   if (diff === 1) return '🎉 Tomorrow';
   return `In ${diff} days`;

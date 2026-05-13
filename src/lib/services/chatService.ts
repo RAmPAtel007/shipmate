@@ -1,7 +1,8 @@
 import {
-  collection, doc, addDoc, getDocs, updateDoc, deleteDoc,
+  collection, doc, addDoc, getDocs, updateDoc,
   query, where, orderBy, limit, onSnapshot, serverTimestamp,
   arrayUnion, arrayRemove, setDoc, getDoc, startAfter,
+  increment, deleteField,
   type Unsubscribe, type DocumentData, type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -12,6 +13,11 @@ import type { Channel, Message, MessageAttachment } from '@/lib/types';
 const CHANNELS = 'channels';
 const MESSAGES = 'messages';
 const MESSAGES_PAGE_SIZE = 50;
+const CHANNEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// ── Module-level channel cache ────────────────────────────────────────────────
+// Avoids repeated full-collection scans across re-renders and page loads.
+let _channelCache: { data: Channel[]; ts: number } | null = null;
 
 function mapMessage(id: string, data: DocumentData): Message {
   return { id, ...data } as Message;
@@ -25,9 +31,46 @@ export const chatService = {
 
   // ── Channels ─────────────────────────────────────────────────────────────
 
+  /** One-shot fetch with 5-min TTL cache. */
   async getChannels(): Promise<Channel[]> {
+    if (_channelCache && Date.now() - _channelCache.ts < CHANNEL_CACHE_TTL) {
+      return _channelCache.data;
+    }
     const snap = await getDocs(collection(db, CHANNELS));
-    return snap.docs.map(d => mapChannel(d.id, d.data()));
+    const data = snap.docs.map(d => mapChannel(d.id, d.data()));
+    _channelCache = { data, ts: Date.now() };
+    return data;
+  },
+
+  /**
+   * Real-time subscription to all channels.
+   * Automatically keeps the module-level cache fresh — call this on the chat
+   * page instead of getChannels() so the list stays in sync without polling.
+   */
+  subscribeToChannels(callback: (channels: Channel[]) => void): Unsubscribe {
+    return onSnapshot(
+      collection(db, CHANNELS),
+      snap => {
+        const channels = snap.docs.map(d => mapChannel(d.id, d.data()));
+        _channelCache = { data: channels, ts: Date.now() };
+        callback(channels);
+      },
+      err => console.error('[chatService] subscribeToChannels error:', err.code, err.message)
+    );
+  },
+
+  /**
+   * Fetch a single channel by ID.
+   * Checks the cache first, then falls back to a single-doc getDoc() — much
+   * cheaper than scanning the whole collection for a DM fallback.
+   */
+  async getChannelById(channelId: string): Promise<Channel | null> {
+    if (_channelCache) {
+      const hit = _channelCache.data.find(c => c.id === channelId);
+      if (hit) return hit;
+    }
+    const snap = await getDoc(doc(db, CHANNELS, channelId));
+    return snap.exists() ? mapChannel(snap.id, snap.data()) : null;
   },
 
   async getAccessibleChannels(userId: string, userDept: string, userRole: string): Promise<Channel[]> {
@@ -45,6 +88,9 @@ export const chatService = {
   },
 
   // ── Messages — Real-time subscription ────────────────────────────────────
+  // Uses single-field where only (no orderBy) to avoid composite-index requirement.
+  // Firestore auto-creates single-field indexes; composite indexes need manual deployment.
+  // Sorting is done client-side so the listener works even before indexes are deployed.
 
   subscribeToChannel(
     channelId: string,
@@ -53,17 +99,25 @@ export const chatService = {
     const q = query(
       collection(db, MESSAGES),
       where('channelId', '==', channelId),
-      where('isDeleted', '==', false),
-      orderBy('createdAt', 'desc'),
-      limit(MESSAGES_PAGE_SIZE)
     );
 
-    return onSnapshot(q, snap => {
-      const messages = snap.docs
-        .map(d => mapMessage(d.id, d.data()))
-        .reverse(); // Newest-last for display
-      callback(messages);
-    });
+    return onSnapshot(q,
+      snap => {
+        const messages = snap.docs
+          .map(d => mapMessage(d.id, d.data()))
+          .filter(m => !m.isDeleted)
+          .sort((a, b) => {
+            const ta = (a.createdAt as any)?.toMillis?.() ?? 0;
+            const tb = (b.createdAt as any)?.toMillis?.() ?? 0;
+            return ta - tb; // oldest → newest
+          })
+          .slice(-MESSAGES_PAGE_SIZE); // keep last N
+        callback(messages);
+      },
+      err => {
+        console.error('[chatService] subscribeToChannel error:', err.code, err.message);
+      }
+    );
   },
 
   async loadMoreMessages(
@@ -101,7 +155,6 @@ export const chatService = {
     let messageData: Omit<Message, 'id'>;
 
     if (isLongText(text)) {
-      // Store full text in Cloud Storage, keep preview in Firestore
       const tempId = `temp_${Date.now()}`;
       const storagePath = await storageService.uploadLongMessage(channelId, tempId, text);
 
@@ -135,12 +188,12 @@ export const chatService = {
 
     const ref = await addDoc(collection(db, MESSAGES), messageData);
 
-    // Update channel last message preview
-    await updateDoc(doc(db, CHANNELS, channelId), {
+    // Non-critical metadata update — fire and forget
+    updateDoc(doc(db, CHANNELS, channelId), {
       lastMessageAt: serverTimestamp(),
       lastMessagePreview: text.substring(0, 80),
       lastMessageSenderId: data.senderId,
-    }).catch(() => {}); // Non-critical
+    }).catch(() => {});
 
     return ref.id;
   },
@@ -157,47 +210,45 @@ export const chatService = {
   },
 
   // ── Reactions ────────────────────────────────────────────────────────────
+  // Accepts currentReactions from React state to avoid an extra Firestore read.
 
-  async addReaction(messageId: string, emoji: string, userId: string): Promise<void> {
-    const snap = await getDoc(doc(db, MESSAGES, messageId));
-    if (!snap.exists()) return;
-
-    const reactions = snap.data().reactions ?? {};
-    const existing = reactions[emoji];
+  async addReaction(
+    messageId: string,
+    emoji: string,
+    userId: string,
+    currentReactions: Record<string, { count: number; userIds: string[]; emoji: string }> = {}
+  ): Promise<void> {
+    const existing = currentReactions[emoji];
 
     if (existing?.userIds?.includes(userId)) {
-      // Toggle off
-      await chatService.removeReaction(messageId, emoji, userId);
+      await chatService.removeReaction(messageId, emoji, userId, currentReactions);
       return;
     }
 
     await updateDoc(doc(db, MESSAGES, messageId), {
-      [`reactions.${emoji}.count`]: (existing?.count ?? 0) + 1,
+      [`reactions.${emoji}.count`]: increment(1),
       [`reactions.${emoji}.userIds`]: arrayUnion(userId),
       [`reactions.${emoji}.emoji`]: emoji,
     });
   },
 
-  async removeReaction(messageId: string, emoji: string, userId: string): Promise<void> {
-    const snap = await getDoc(doc(db, MESSAGES, messageId));
-    if (!snap.exists()) return;
-    const reactions = snap.data().reactions ?? {};
-    const existing = reactions[emoji];
+  async removeReaction(
+    messageId: string,
+    emoji: string,
+    userId: string,
+    currentReactions: Record<string, { count: number; userIds: string[]; emoji: string }> = {}
+  ): Promise<void> {
+    const existing = currentReactions[emoji];
     if (!existing) return;
 
     const newCount = (existing.count ?? 1) - 1;
     if (newCount <= 0) {
-      // Remove the emoji key entirely
-      const update: Record<string, any> = {};
-      update[`reactions.${emoji}`] = null; // Firestore deleteField equivalent via null
-      // Actually use deleteField
-      const { deleteField } = await import('firebase/firestore');
       await updateDoc(doc(db, MESSAGES, messageId), {
         [`reactions.${emoji}`]: deleteField(),
       });
     } else {
       await updateDoc(doc(db, MESSAGES, messageId), {
-        [`reactions.${emoji}.count`]: newCount,
+        [`reactions.${emoji}.count`]: increment(-1),
         [`reactions.${emoji}.userIds`]: arrayRemove(userId),
       });
     }
@@ -205,8 +256,12 @@ export const chatService = {
 
   // ── DM channels ──────────────────────────────────────────────────────────
 
-  async getOrCreateDM(userId1: string, userId2: string): Promise<string> {
-    // Deterministic channel ID so we never create duplicates
+  async getOrCreateDM(
+    userId1: string,
+    userName1: string,
+    userId2: string,
+    userName2: string,
+  ): Promise<string> {
     const sorted = [userId1, userId2].sort();
     const dmId = `dm_${sorted[0]}_${sorted[1]}`;
     const channelRef = doc(db, CHANNELS, dmId);
@@ -217,17 +272,22 @@ export const chatService = {
         name: dmId,
         type: 'dm',
         members: sorted,
+        participantNames: { [userId1]: userName1, [userId2]: userName2 },
         createdBy: userId1,
         isArchived: false,
         createdAt: serverTimestamp(),
       });
+    } else {
+      updateDoc(channelRef, {
+        [`participantNames.${userId1}`]: userName1,
+        [`participantNames.${userId2}`]: userName2,
+      }).catch(() => {});
     }
 
     return dmId;
   },
 
   // ── Search ────────────────────────────────────────────────────────────────
-  // Basic prefix search — upgrade to Algolia/Typesense in v2
 
   async searchMessages(searchTerm: string, channelId?: string): Promise<Message[]> {
     const constraints: any[] = [

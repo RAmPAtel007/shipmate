@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Home, MessageSquare, Calendar, Users,
-  FolderOpen, Settings, LogOut, Megaphone,
+  FolderOpen, Settings, LogOut, Megaphone, ChevronDown, Shield,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDepartmentLabel } from '@/lib/utils/formatters';
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { icon: Users,         label: 'People',         href: '/people',        key: 'people' },
   { icon: FolderOpen,    label: 'Documents',      href: '/documents',     key: 'documents' },
   { icon: Megaphone,     label: 'Announcements',  href: '/announcements', key: 'announcements' },
+  { icon: Settings,      label: 'Settings',       href: '/settings',      key: 'settings' },
 ] as const;
 
 interface Props {
@@ -29,6 +30,7 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
   const { signOutUser } = useAuth();
   const router = useRouter();
   const isAdmin = ['super_admin', 'hr_admin'].includes(currentUser.role);
+  const initials = currentUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   async function handleSignOut() {
     await signOutUser();
@@ -36,51 +38,23 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
   }
 
   return (
-    <aside className="w-60 h-full bg-[#1B2B5E] flex flex-col select-none">
+    <aside className="w-[220px] h-full bg-[#1B2B5E] flex flex-col select-none">
 
-      {/* Logo ────────────────────────────────────────────────────── */}
-      <div className="px-5 py-5 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-[#F5C518] rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
-            <span className="text-[#1B2B5E] font-bold text-lg leading-none">S</span>
+      {/* ── Workspace header ──────────────────────────────────────── */}
+      <div className="px-3 py-3 border-b border-white/10 flex-shrink-0">
+        <button className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors group">
+          <div className="w-7 h-7 bg-[#F5C518] rounded-lg flex items-center justify-center flex-shrink-0">
+            <span className="text-[#1B2B5E] font-black text-sm leading-none">S</span>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-white font-bold text-[15px] tracking-widest uppercase">SHIPMATE</h1>
-            <p className="text-white/35 text-[9px] uppercase tracking-widest font-medium">Shipcube</p>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-white font-bold text-sm leading-tight truncate">Shipcube</p>
           </div>
-        </div>
+          <ChevronDown size={14} className="text-white/40 group-hover:text-white/70 flex-shrink-0" />
+        </button>
       </div>
 
-      {/* User card ───────────────────────────────────────────────── */}
-      <div className="px-4 py-3.5 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-[#2D4080] flex items-center justify-center flex-shrink-0 overflow-hidden border-2 border-white/15">
-            {currentUser.photoURL ? (
-              <img
-                src={currentUser.photoURL}
-                alt={currentUser.name}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <span className="text-white text-xs font-semibold">
-                {currentUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-semibold truncate leading-snug">
-              {currentUser.name}
-            </p>
-            <p className="text-white/45 text-[11px] truncate leading-snug">
-              {getDepartmentLabel(currentUser.department)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation ──────────────────────────────────────────────── */}
-      <nav className="flex-1 px-3 py-3 overflow-y-auto space-y-0.5">
+      {/* ── Navigation ────────────────────────────────────────────── */}
+      <nav className="flex-1 px-2 py-2 overflow-y-auto space-y-0.5">
         {NAV_ITEMS.map(({ icon: Icon, label, href, key }) => {
           const isActive = activeTab === key;
           const showBadge = key === 'chat' && unreadCount > 0;
@@ -89,22 +63,18 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
             <Link
               key={key}
               href={href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all duration-100 group relative ${
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all group relative ${
                 isActive
-                  ? 'bg-white/13 text-white'
-                  : 'text-white/60 hover:bg-white/7 hover:text-white/90'
+                  ? 'bg-white/20 text-white'
+                  : 'text-[#bcc4d4] hover:bg-white/10 hover:text-white'
               }`}
             >
-              {/* Active indicator */}
-              {isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#F5C518] rounded-r-full" />
-              )}
               <Icon
                 size={17}
-                className={`flex-shrink-0 ${isActive ? 'text-[#F5C518]' : 'text-white/50 group-hover:text-white/70'}`}
+                className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-[#8d9cb8] group-hover:text-white'}`}
                 strokeWidth={isActive ? 2.5 : 2}
               />
-              <span className="flex-1">{label}</span>
+              <span className="flex-1 truncate">{label}</span>
               {showBadge && (
                 <span className="min-w-[18px] h-[18px] bg-[#F5C518] text-[#1B2B5E] text-[10px] font-bold rounded-full flex items-center justify-center px-1">
                   {unreadCount > 9 ? '9+' : unreadCount}
@@ -114,39 +84,65 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
           );
         })}
 
-        {/* Admin-only: Settings */}
+        {/* Admin Panel */}
         {isAdmin && (
           <Link
-            href="/settings"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all duration-100 group relative ${
-              activeTab === 'settings'
-                ? 'bg-white/13 text-white'
-                : 'text-white/60 hover:bg-white/7 hover:text-white/90'
+            href="/admin"
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all group relative ${
+              activeTab === 'admin'
+                ? 'bg-white/20 text-white'
+                : 'text-[#bcc4d4] hover:bg-white/10 hover:text-white'
             }`}
           >
-            {activeTab === 'settings' && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#F5C518] rounded-r-full" />
-            )}
-            <Settings
+            <Shield
               size={17}
-              className={`flex-shrink-0 ${activeTab === 'settings' ? 'text-[#F5C518]' : 'text-white/50 group-hover:text-white/70'}`}
-              strokeWidth={activeTab === 'settings' ? 2.5 : 2}
+              className={`flex-shrink-0 ${activeTab === 'admin' ? 'text-white' : 'text-[#8d9cb8] group-hover:text-white'}`}
+              strokeWidth={activeTab === 'admin' ? 2.5 : 2}
             />
-            Settings
+            <span>Admin Panel</span>
           </Link>
         )}
       </nav>
 
-      {/* Sign out ────────────────────────────────────────────────── */}
-      <div className="px-3 py-3 border-t border-white/10 flex-shrink-0">
-        <button
-          onClick={handleSignOut}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/45 hover:text-white/80 hover:bg-white/7 text-[13px] font-medium transition-all w-full"
-        >
-          <LogOut size={16} className="flex-shrink-0" />
-          Sign Out
-        </button>
+      {/* ── User profile (bottom, Slack-style) ───────────────────── */}
+      <div className="px-2 py-2 border-t border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer group">
+          {/* Avatar with online indicator */}
+          <div className="relative flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-[#2D4080] flex items-center justify-center overflow-hidden border-2 border-white/20">
+              {currentUser.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.name}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="text-white text-xs font-bold">{initials}</span>
+              )}
+            </div>
+            {/* Online dot */}
+            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 border-2 border-[#1B2B5E] rounded-full" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-semibold truncate leading-tight">{currentUser.name}</p>
+            <p className="text-[#8d9cb8] text-[11px] truncate leading-tight">
+              {getDepartmentLabel(currentUser.department)}
+            </p>
+          </div>
+
+          {/* Sign out */}
+          <button
+            onClick={handleSignOut}
+            title="Sign out"
+            className="p-1 rounded text-[#8d9cb8] hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
+
     </aside>
   );
 }

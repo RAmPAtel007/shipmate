@@ -1,6 +1,7 @@
 import {
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   type User,
@@ -10,10 +11,16 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  getDocs,
+  collection,
+  query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { auth, db } from './config';
 import type { ShipmateUser, Department, UserRole } from '@/lib/types';
+
+const ADMIN_EMAILS = ['abhishek@shipcube.com', 'admin@shipcube.com'];
 
 const ALLOWED_DOMAIN = 'shipcube.com';
 
@@ -36,9 +43,72 @@ export async function signInWithGoogle(): Promise<ShipmateUser> {
   return createOrGetUserProfile(user);
 }
 
+/** Sign in with email + password — admin accounts only */
+export async function signInWithEmail(email: string, password: string): Promise<ShipmateUser> {
+  const result = await signInWithEmailAndPassword(auth, email, password);
+  const user = result.user;
+
+  // 1. Try lookup by UID (correct way)
+  let profile = await getUserProfile(user.uid);
+
+  // 2. If not found, search by email field (handles wrong document ID case)
+  if (!profile) {
+    const q = query(collection(db, 'users'), where('email', '==', email));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const existingData = snap.docs[0].data();
+      // Migrate: write a new doc with the correct UID
+      await setDoc(doc(db, 'users', user.uid), {
+        ...existingData,
+        updatedAt: serverTimestamp(),
+      });
+      profile = { uid: user.uid, ...existingData } as ShipmateUser;
+    }
+  }
+
+  // 3. Auto-create profile for known admin emails if still not found
+  if (!profile && ADMIN_EMAILS.includes(email)) {
+    const adminData: Omit<ShipmateUser, 'uid'> = {
+      name: email === 'abhishek@shipcube.com' ? 'Abhishek' : 'Admin',
+      email,
+      role: 'super_admin',
+      department: 'ai-team',
+      status: 'active',
+      notificationTokens: [],
+      createdAt: serverTimestamp() as any,
+      updatedAt: serverTimestamp() as any,
+    };
+    await setDoc(doc(db, 'users', user.uid), adminData);
+    profile = { uid: user.uid, ...adminData } as ShipmateUser;
+  }
+
+  if (!profile) {
+    await firebaseSignOut(auth);
+    throw new Error('Admin profile not found. Contact your system administrator.');
+  }
+
+  if (profile.status === 'inactive') {
+    await firebaseSignOut(auth);
+    throw new Error('This account has been deactivated.');
+  }
+
+  if (!['super_admin', 'hr_admin'].includes(profile.role)) {
+    await firebaseSignOut(auth);
+    throw new Error('Admin access only. Use Google Sign-In for regular employee access.');
+  }
+
+  // Set session cookies
+  user.getIdToken().then(token => {
+    document.cookie = `shipmate_session=${token}; path=/; max-age=3600; samesite=strict`;
+    document.cookie = `shipmate_admin=1; path=/; max-age=3600; samesite=strict`;
+  });
+
+  return profile;
+}
+
 export async function signOut(): Promise<void> {
-  // Clear session cookie used by middleware
   document.cookie = 'shipmate_session=; path=/; max-age=0';
+  document.cookie = 'shipmate_admin=; path=/; max-age=0';
   await firebaseSignOut(auth);
 }
 

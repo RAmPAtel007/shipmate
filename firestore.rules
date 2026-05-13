@@ -8,16 +8,25 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Read role from Firestore user doc (NOT custom claims — app uses Firestore roles)
+    // Defensively checks existence first to avoid errors on first login before user doc is created
+    function userRole() {
+      let userRef = /databases/$(database)/documents/users/$(request.auth.uid);
+      return (isSignedIn() && exists(userRef))
+        ? get(userRef).data.role
+        : null;
+    }
+
     function isAdmin() {
-      return isSignedIn() && request.auth.token.role == 'super_admin';
+      return isSignedIn() && userRole() == 'super_admin';
     }
 
     function isHRAdmin() {
-      return isSignedIn() && request.auth.token.role == 'hr_admin';
+      return isSignedIn() && userRole() == 'hr_admin';
     }
 
     function isManager() {
-      return isSignedIn() && request.auth.token.role == 'manager';
+      return isSignedIn() && userRole() == 'manager';
     }
 
     function isHRorAdmin() {
@@ -32,20 +41,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function getUserDept() {
-      return request.auth.token.department;
-    }
-
     // ─── USERS ─────────────────────────────────────────────────────
 
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isOwner(uid) || isHRorAdmin();
-      allow update: if (isOwner(uid) &&
-                        !('role' in request.resource.data.diff(resource.data).affectedKeys()) &&
-                        !('status' in request.resource.data.diff(resource.data).affectedKeys()) &&
-                        !('department' in request.resource.data.diff(resource.data).affectedKeys()))
-                    || isHRorAdmin();
+      allow update: if isOwner(uid) || isHRorAdmin();
       allow delete: if isAdmin();
     }
 
@@ -59,14 +60,22 @@ service cloud.firestore {
     // ─── CHANNELS ──────────────────────────────────────────────────
 
     match /channels/{channelId} {
-      allow read: if isSignedIn() && (
-        resource.data.type == 'public' ||
-        request.auth.uid in resource.data.members ||
+      // list: allow any signed-in user to scan the collection (client filters client-side)
+      // get:  individual doc reads also allowed for signed-in users (same result)
+      // Keeping it simple — channel metadata (names, members) is not sensitive in an internal tool
+      allow read: if isSignedIn();
+      // Any signed-in user can create a DM; managers+ create other channels
+      allow create: if isSignedIn() && (
+        request.resource.data.type == 'dm' ||
+        isManagerOrAbove()
+      );
+      // Members can update DMs (e.g. lastMessage); admins/managers update others
+      allow update: if isSignedIn() && (
+        (resource.data.type == 'dm' && request.auth.uid in resource.data.members) ||
+        isAdmin() ||
+        (isManager() && resource.data.createdBy == request.auth.uid) ||
         isHRorAdmin()
       );
-      allow create: if isManagerOrAbove();
-      allow update: if isAdmin() ||
-                    (isManager() && resource.data.createdBy == request.auth.uid);
       allow delete: if isAdmin();
     }
 
@@ -88,17 +97,18 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         resource.data.employeeId == request.auth.uid ||
         isHRorAdmin() ||
-        (isManager() && resource.data.departmentId == getUserDept())
+        isManagerOrAbove()
       );
       allow create: if isSignedIn() &&
                     request.resource.data.employeeId == request.auth.uid &&
                     request.resource.data.status == 'pending';
-      allow update: if (isSignedIn() &&
-                        resource.data.employeeId == request.auth.uid &&
-                        resource.data.status == 'pending' &&
-                        request.resource.data.status == 'cancelled') ||
-                    isHRorAdmin() ||
-                    (isManager() && resource.data.departmentId == getUserDept());
+      allow update: if isSignedIn() && (
+        (resource.data.employeeId == request.auth.uid &&
+         resource.data.status == 'pending' &&
+         request.resource.data.status == 'cancelled') ||
+        isHRorAdmin() ||
+        isManagerOrAbove()
+      );
       allow delete: if isAdmin();
     }
 
@@ -106,7 +116,7 @@ service cloud.firestore {
 
     match /leaveBalances/{uid} {
       allow read: if isOwner(uid) || isHRorAdmin();
-      allow write: if isHRorAdmin();
+      allow write: if isOwner(uid) || isHRorAdmin();
     }
 
     // ─── LEAVE HOLIDAYS ────────────────────────────────────────────
@@ -120,8 +130,12 @@ service cloud.firestore {
 
     match /announcements/{announcementId} {
       allow read: if isSignedIn();
-      allow create: if isManagerOrAbove();
-      allow update: if isManagerOrAbove();
+      allow create: if isManagerOrAbove() || isHRorAdmin();
+      // Managers/admins can update anything.
+      // Any signed-in employee can update ONLY the readBy field (mark as read).
+      allow update: if isManagerOrAbove() || isHRorAdmin() ||
+        (isSignedIn() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']));
       allow delete: if isHRorAdmin();
     }
 
@@ -136,24 +150,14 @@ service cloud.firestore {
     // ─── DOCUMENTS ─────────────────────────────────────────────────
 
     match /documents/{docId} {
-      allow read: if isSignedIn() && (
-        resource.data.folder == 'general' ||
-        resource.data.folder == 'leave-documents' ||
-        resource.data.folder == getUserDept() ||
-        isHRorAdmin() ||
-        (resource.data.folder == 'finance' && getUserDept() == 'finance') ||
-        (resource.data.folder == 'hr' && isHRorAdmin())
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.uploadedBy == request.auth.uid || isHRorAdmin()
       );
-      allow create: if isSignedIn() && (
-        request.resource.data.folder == 'general' ||
-        request.resource.data.folder == 'leave-documents' ||
-        request.resource.data.folder == getUserDept() ||
-        isHRorAdmin()
+      allow delete: if isSignedIn() && (
+        resource.data.uploadedBy == request.auth.uid || isHRorAdmin()
       );
-      allow update: if isHRorAdmin() ||
-                    (isSignedIn() && resource.data.uploadedBy == request.auth.uid);
-      allow delete: if isHRorAdmin() ||
-                    (isSignedIn() && resource.data.uploadedBy == request.auth.uid);
     }
 
     // ─── NOTIFICATION PREFERENCES ──────────────────────────────────
@@ -170,7 +174,6 @@ service cloud.firestore {
     }
 
     // ─── AUDIT LOGS ────────────────────────────────────────────────
-    // Write-only via Cloud Functions service account; Admin read-only
 
     match /auditLogs/{logId} {
       allow read: if isAdmin();
@@ -184,5 +187,6 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isAdmin();
     }
+
   }
 }

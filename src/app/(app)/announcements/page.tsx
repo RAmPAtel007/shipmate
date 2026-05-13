@@ -275,9 +275,11 @@ export default function AnnouncementsPage() {
     toast.success('Deleted');
   }
 
-  async function handleRead(id: string) {
+  function handleRead(id: string) {
     if (!currentUser) return;
-    await announcementService.markAsRead(id, currentUser.uid);
+    // markAsRead saves to localStorage immediately and fires Firestore in background.
+    // UI update is synchronous — no await needed.
+    announcementService.markAsRead(id, currentUser.uid);
     setItems(prev =>
       prev.map(a =>
         a.id === id
@@ -295,7 +297,17 @@ export default function AnnouncementsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Announcements</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-gray-900">Announcements</h1>
+            {!loading && (() => {
+              const unread = items.filter(a => !announcementService.hasUserRead(a, currentUser.uid)).length;
+              return unread > 0 ? (
+                <span className="min-w-[20px] h-5 bg-[#1B2B5E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1.5">
+                  {unread}
+                </span>
+              ) : null;
+            })()}
+          </div>
           <p className="text-sm text-gray-500 mt-0.5">{items.length} total</p>
         </div>
         {can.postAnnouncements && (

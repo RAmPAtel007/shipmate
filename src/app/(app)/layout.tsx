@@ -12,6 +12,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !currentUser) {
       router.replace('/login');
+      return;
+    }
+    // Admins belong in the admin panel — redirect them away from the main app
+    if (!loading && currentUser && ['super_admin', 'hr_admin'].includes(currentUser.role)) {
+      router.replace('/admin');
     }
   }, [currentUser, loading, router]);
 
