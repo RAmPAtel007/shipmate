@@ -507,6 +507,7 @@ export default function LeavesPage() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData(); }, [currentUser?.uid]);
 
   return (

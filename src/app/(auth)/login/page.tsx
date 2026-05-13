@@ -51,6 +51,7 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-[#0D1832] flex items-center justify-center">
         <div className="flex flex-col items-center gap-5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://www.shipcube.com/img/logo.svg"
             alt="Shipcube"
@@ -84,6 +85,7 @@ export default function LoginPage() {
 
           {/* Logo */}
           <div className="flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="https://www.shipcube.com/img/logo.svg"
               alt="Shipcube"
@@ -130,6 +132,7 @@ export default function LoginPage() {
           {/* Bottom bar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="https://www.shipcube.com/img/logo.svg"
                 alt="Shipcube"
@@ -152,6 +155,7 @@ export default function LoginPage() {
 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center mb-10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="https://www.shipcube.com/img/logo.svg"
               alt="Shipcube"
@@ -312,6 +316,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <div className="flex flex-col items-center gap-2 mt-10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="https://www.shipcube.com/img/logo.svg"
               alt="Shipcube"

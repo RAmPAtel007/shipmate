@@ -479,8 +479,10 @@ function Conversation({
       senderPhotoURL: currentUser.photoURL ?? null,
       text,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel.id, currentUser?.uid]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleReact = useCallback(async (messageId: string, emoji: string, reactions: ReactionMap) => {
     if (!currentUser) return;
     await chatService.addReaction(messageId, emoji, currentUser.uid, reactions);
@@ -604,8 +606,10 @@ function AdminChatInner() {
     });
 
     return () => { unsub(); initialSelectDone.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSelectChannel = useCallback((id: string) => {
     setActiveChannelId(id);
     setMobileView('chat');

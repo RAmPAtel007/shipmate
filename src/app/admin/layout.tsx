@@ -74,6 +74,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-[#F5C518]/20 border border-[#F5C518]/30 flex items-center justify-center overflow-hidden flex-shrink-0">
               {currentUser.photoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={currentUser.photoURL} alt={currentUser.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 <span className="text-[#F5C518] text-xs font-bold">
