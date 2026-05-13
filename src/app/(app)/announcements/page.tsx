@@ -11,7 +11,7 @@ import { Avatar, Badge, EmptyState, Button } from '@/components/ui';
 import { announcementService } from '@/lib/services/announcementService';
 import { formatDate } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
-import type { Announcement } from '@/lib/types';
+import type { Announcement } from '@/lib/types/index';
 import toast from 'react-hot-toast';
 
 // ── Announcement card ─────────────────────────────────────────────────────────

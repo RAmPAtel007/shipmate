@@ -824,11 +824,11 @@ function ChatPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSelectChannel = useCallback((id: string) => {
     setActiveChannelId(id);
     setMobileView('chat');
     if (currentUser) markChannelRead(currentUser.uid, id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
   const activeChannel = channels.find(c => c.id === activeChannelId) ?? null;
