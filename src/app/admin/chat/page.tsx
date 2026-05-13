@@ -482,10 +482,10 @@ function Conversation({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel.id, currentUser?.uid]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleReact = useCallback(async (messageId: string, emoji: string, reactions: ReactionMap) => {
     if (!currentUser) return;
     await chatService.addReaction(messageId, emoji, currentUser.uid, reactions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
   const handleDelete = useCallback(async (messageId: string) => {
@@ -609,11 +609,11 @@ function AdminChatInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSelectChannel = useCallback((id: string) => {
     setActiveChannelId(id);
     setMobileView('chat');
     if (currentUser) markChannelRead(currentUser.uid, id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
   const activeChannel = channels.find(c => c.id === activeChannelId) ?? null;

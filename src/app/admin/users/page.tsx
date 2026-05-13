@@ -201,6 +201,7 @@ function EditModal({
           <div className="flex items-center gap-3 mb-5 p-3 bg-gray-50 rounded-xl">
             <div className="w-10 h-10 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center overflow-hidden flex-shrink-0">
               {user.photoURL
+                // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 : <span className="text-[#1B2B5E] text-xs font-bold">{user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
               }
@@ -272,6 +273,7 @@ function MemberRow({
       {/* Avatar */}
       <div className="w-8 h-8 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center overflow-hidden flex-shrink-0">
         {member.photoURL
+          // eslint-disable-next-line @next/next/no-img-element
           ? <img src={member.photoURL} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           : <span className="text-[#1B2B5E] text-[10px] font-bold">{member.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
         }
@@ -479,7 +481,7 @@ function DeptManageModal({
               <div className="text-center py-8">
                 <Users size={28} className="text-gray-200 mx-auto mb-2" />
                 <p className="text-sm text-gray-400">No members in this department yet.</p>
-                <p className="text-xs text-gray-300 mt-1">Use "Add Members" below to assign people.</p>
+                <p className="text-xs text-gray-300 mt-1">{'Use "Add Members" below to assign people.'}</p>
               </div>
             ) : (
               <div className="space-y-1">
@@ -538,6 +540,7 @@ function DeptManageModal({
                       >
                         <div className="w-8 h-8 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center overflow-hidden flex-shrink-0">
                           {u.photoURL
+                            // eslint-disable-next-line @next/next/no-img-element
                             ? <img src={u.photoURL} alt={u.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             : <span className="text-[#1B2B5E] text-[10px] font-bold">{u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
                           }
@@ -871,6 +874,7 @@ export default function AdminUsersPage() {
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center overflow-hidden flex-shrink-0">
                               {user.photoURL
+                                // eslint-disable-next-line @next/next/no-img-element
                                 ? <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 : <span className="text-[#1B2B5E] text-xs font-bold">{user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
                               }
@@ -989,6 +993,7 @@ export default function AdminUsersPage() {
                                     className="w-5 h-5 rounded-full border-2 border-white bg-[#1B2B5E]/10 flex items-center justify-center overflow-hidden"
                                   >
                                     {m.photoURL
+                                      // eslint-disable-next-line @next/next/no-img-element
                                       ? <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                       : <span className="text-[#1B2B5E] text-[8px] font-bold">{m.name[0]}</span>
                                     }
@@ -1023,6 +1028,7 @@ export default function AdminUsersPage() {
                                 <div key={m.uid} className="flex items-center gap-2.5">
                                   <div className="w-7 h-7 rounded-full bg-[#1B2B5E]/8 flex items-center justify-center overflow-hidden flex-shrink-0">
                                     {m.photoURL
+                                      // eslint-disable-next-line @next/next/no-img-element
                                       ? <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                       : <span className="text-[#1B2B5E] text-[10px] font-bold">{m.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
                                     }

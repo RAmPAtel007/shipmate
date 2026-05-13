@@ -132,7 +132,7 @@ export default function HomePage() {
               <h1 className="text-2xl font-black text-white tracking-tight">
                 {greeting}, {firstName} 👋
               </h1>
-              <p className="text-white/40 text-sm mt-1.5">Here's what's happening at Shipcube today.</p>
+              <p className="text-white/40 text-sm mt-1.5">{"Here's what's happening at Shipcube today."}</p>
             </div>
 
             {/* Pending approval alert */}

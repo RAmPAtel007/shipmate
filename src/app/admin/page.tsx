@@ -37,6 +37,7 @@ interface RecentLeave {
 function Initials({ name, photo, size = 32 }: { name: string; photo?: string; size?: number }) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   if (photo) {
+    // eslint-disable-next-line @next/next/no-img-element
     return <img src={photo} alt={name} className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />;
   }
   const colors = ['bg-[#1B2B5E]', 'bg-emerald-600', 'bg-violet-600', 'bg-rose-600', 'bg-amber-600', 'bg-cyan-600'];
@@ -333,7 +334,7 @@ export default function AdminDashboard() {
               <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                 {greeting}, {currentUser?.name.split(' ')[0]} 👋
               </h1>
-              <p className="text-white/35 text-sm mt-1">Here's a live overview of Shipcube.</p>
+              <p className="text-white/35 text-sm mt-1">{"Here's a live overview of Shipcube."}</p>
             </div>
             <div className="flex items-center gap-2 bg-white/8 border border-white/10 rounded-xl px-3 py-2 sm:px-4 sm:py-2.5 w-fit">
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
