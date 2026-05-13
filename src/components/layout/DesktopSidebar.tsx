@@ -111,6 +111,7 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-[#2D4080] flex items-center justify-center overflow-hidden border-2 border-white/20">
               {currentUser.photoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={currentUser.photoURL}
                   alt={currentUser.name}

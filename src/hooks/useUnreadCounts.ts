@@ -74,6 +74,7 @@ export function useUnreadCounts(): UnreadCounts {
     );
 
     return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
   return counts;

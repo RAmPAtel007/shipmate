@@ -34,6 +34,7 @@ export function Avatar({ src, name, size = 'md', online, className }: AvatarProp
         style={!src ? { backgroundColor: bgColor } : undefined}
       >
         {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}
             alt={name}

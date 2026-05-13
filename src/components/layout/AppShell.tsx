@@ -40,6 +40,7 @@ export function AppShell({ currentUser, children }: AppShellProps) {
           {/* User avatar */}
           <div className="w-8 h-8 rounded-full bg-[#2D4080] flex items-center justify-center border-2 border-white/20 overflow-hidden">
             {currentUser.photoURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={currentUser.photoURL}
                 alt={currentUser.name}
