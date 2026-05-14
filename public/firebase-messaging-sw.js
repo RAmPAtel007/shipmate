@@ -7,12 +7,12 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-com
 // Firebase config — these are public NEXT_PUBLIC_ values, safe to include here.
 // Update these values if your Firebase project changes.
 firebase.initializeApp({
-  apiKey:            self.FIREBASE_API_KEY            || 'YOUR_API_KEY',
-  authDomain:        self.FIREBASE_AUTH_DOMAIN        || 'YOUR_AUTH_DOMAIN',
-  projectId:         self.FIREBASE_PROJECT_ID         || 'YOUR_PROJECT_ID',
-  storageBucket:     self.FIREBASE_STORAGE_BUCKET     || 'YOUR_STORAGE_BUCKET',
-  messagingSenderId: self.FIREBASE_MESSAGING_SENDER_ID|| 'YOUR_SENDER_ID',
-  appId:             self.FIREBASE_APP_ID             || 'YOUR_APP_ID',
+  apiKey:            'AIzaSyCalrP_yTJxMZ5-zfRbFfbiTzq_0SzuZIk',
+  authDomain:        'shipmate-30.firebaseapp.com',
+  projectId:         'shipmate-30',
+  storageBucket:     'shipmate-30.firebasestorage.app',
+  messagingSenderId: '13715156531',
+  appId:             '1:13715156531:web:251f3738bc44b7e2c0fd46',
 });
 
 const messaging = firebase.messaging();
