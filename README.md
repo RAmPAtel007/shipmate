@@ -1,28 +1,36 @@
-# Shipmate
+# SHIPMATE — Shipcube
 
-An internal HR and team management platform for Shipcube. Employees get a single place to view announcements, request leave, and manage their profile. Admins get full control over team members, departments, leave approvals, and company settings.
+Internal team operating system for Shipcube. One place for chat, leave management, announcements, documents, and team directory — built as a mobile-first PWA.
 
 ---
 
 ## Features
 
-### Employee dashboard
-- Personalised home page with leave balance, upcoming birthdays, and company announcements
-- Leave request flow with date picker and leave-type selection
-- Personal profile management
+### Employee app
+- **Home dashboard** — personalised greeting, leave balance, upcoming birthdays, who's on leave today, pinned announcements
+- **Chat** — real-time channels, DMs, @mentions, file sharing
+- **Leave requests** — apply, track, and cancel leave with live balance display
+- **People** — searchable employee directory with department filter
+- **Announcements** — company notices with read receipts
+- **Documents** — upload and browse shared files
+- **Notification bell** — in-app notification badge that clears when viewed
+- **PWA** — installable on iOS and Android with Shipcube home-screen icon
 
 ### Admin panel
-- **Team Management** — real-time member table with role, department, and status editing; department cards with create / rename / delete and inline member assignment
-- **Leave Approvals** — review, approve, or reject pending requests
-- **Announcements** — publish and pin company-wide notices
-- **Dashboard** — live stat cards with hover popovers showing users, pending leaves, and more
-- **Settings** — company info, team structure, and notification preferences
+- **Dashboard** — live stat cards (team size, pending leaves, channels, documents)
+- **Team management** — roles, departments, member assignment, invite
+- **Leave approvals** — approve / reject with admin notes; full history
+- **Announcements** — create, pin, and delete company notices
+- **Chat & Channels** — channel creation and moderation
+- **Documents** — upload management
+- **Settings** — company info and team structure
 
 ### Technical highlights
-- Real-time data via Firestore `onSnapshot` (no polling, no manual refreshes)
-- Role-based access control: `super_admin`, `hr_admin`, `manager`, `employee`
-- Google Sign-In with optional email-domain restriction
-- Fully responsive — mobile through widescreen
+- Real-time updates via Firestore `onSnapshot`
+- Role-based access: `super_admin`, `hr_admin`, `manager`, `employee`
+- Google Sign-In (configurable domain restriction)
+- Push notifications via Firebase Cloud Messaging (FCM)
+- Mobile-first responsive layout with safe-area support
 
 ---
 
@@ -30,10 +38,10 @@ An internal HR and team management platform for Shipcube. Employees get a single
 
 | Layer | Technology |
 |---|---|
-| Framework | [Next.js 14](https://nextjs.org/) App Router |
+| Framework | [Next.js 16](https://nextjs.org/) App Router (Turbopack) |
 | Language | TypeScript |
 | Styling | Tailwind CSS |
-| Database / Auth / Storage | Firebase (Firestore, Authentication, Storage) |
+| Backend | Firebase — Firestore, Auth, Storage, FCM |
 | State | Zustand + React Query |
 | Forms | React Hook Form + Zod |
 | UI | Lucide React, react-hot-toast, react-dropzone |
@@ -44,8 +52,9 @@ An internal HR and team management platform for Shipcube. Employees get a single
 
 ### Prerequisites
 
-- Node.js 18 or later
+- Node.js 18+
 - A [Firebase](https://firebase.google.com/) project with **Authentication**, **Firestore**, and **Storage** enabled
+- [Firebase CLI](https://firebase.google.com/docs/cli) installed (`npm install -g firebase-tools`)
 
 ### 1 — Clone and install
 
@@ -55,13 +64,13 @@ cd shipmate
 npm install
 ```
 
-### 2 — Set up environment variables
+### 2 — Environment variables
 
 ```bash
 cp .env.example .env.local
 ```
 
-Open `.env.local` and paste in your Firebase credentials (Firebase Console → Project Settings → Your Apps → SDK setup and configuration):
+Fill in your Firebase credentials from **Firebase Console → Project Settings → Your Apps**:
 
 ```env
 NEXT_PUBLIC_FIREBASE_API_KEY=
@@ -70,62 +79,34 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=   # optional
+NEXT_PUBLIC_FIREBASE_VAPID_KEY=        # for push notifications (see step 5)
 ```
 
-To restrict sign-up to your company domain, also set:
+### 3 — Deploy Firestore rules
 
-```env
-NEXT_PUBLIC_ALLOWED_DOMAINS=yourdomain.com
+```bash
+firebase login
+firebase use <your-project-id>
+firebase deploy --only firestore:rules
 ```
 
-### 3 — Configure Firebase
+### 4 — Generate PWA icons (one-time)
 
-In the Firebase Console:
-
-1. **Authentication** → Sign-in method → enable **Google**
-2. **Firestore** → Create database → start in production mode → apply the rules below
-3. **Storage** → Get started
-
-**Firestore security rules:**
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    function role() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
-    function isAdmin()   { return role() in ['super_admin']; }
-    function isHR()      { return role() in ['super_admin', 'hr_admin']; }
-    function isManager() { return role() in ['super_admin', 'hr_admin', 'manager']; }
-
-    match /users/{uid} {
-      allow read:  if request.auth != null;
-      allow write: if request.auth.uid == uid || isHR();
-    }
-    match /departments/{id} {
-      allow read:  if request.auth != null;
-      allow write: if isHR();
-    }
-    match /leaveRequests/{id} {
-      allow read:   if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if isManager();
-    }
-    match /announcements/{id} {
-      allow read:  if request.auth != null;
-      allow write: if isManager();
-    }
-    match /settings/{id} {
-      allow read:  if request.auth != null;
-      allow write: if isAdmin();
-    }
-  }
-}
+```bash
+npm install sharp
+node generate-icons.js
 ```
 
-### 4 — Start the dev server
+This fetches the Shipcube logo and generates all required PNG icon sizes into `public/icons/`. Commit the output.
+
+### 5 — Push notifications (optional)
+
+1. Firebase Console → **Project Settings → Cloud Messaging → Web Push certificates → Generate key pair**
+2. Copy the key into `NEXT_PUBLIC_FIREBASE_VAPID_KEY` in `.env.local` (and in Vercel env vars)
+3. Fill in the Firebase config values inside `public/firebase-messaging-sw.js`
+
+### 6 — Start dev server
 
 ```bash
 npm run dev
@@ -135,35 +116,65 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
+## Firestore Security Rules
+
+The full rules file is at `firestore.rules`. Deploy with:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+Key rule highlights:
+- Any signed-in user can read `users`, `departments`, `channels`, `announcements`, `leaveRequests`, `documents`, `birthdayWishes`
+- Employees can only write their own `leaveRequests` (create) and `users` (update own profile)
+- HR admins and super admins have full write access
+- Announcements: any signed-in user can update only the `readBy` field (mark-as-read)
+
+---
+
 ## Project Structure
 
 ```
 shipmate/
 ├── src/
 │   ├── app/
-│   │   ├── (app)/            # Employee-facing pages
-│   │   │   ├── home/         # Dashboard
-│   │   │   ├── leaves/       # Leave requests
-│   │   │   ├── people/       # Team directory
-│   │   │   ├── profile/      # User profile
-│   │   │   └── layout.tsx    # App shell + sidebar
-│   │   ├── admin/            # Admin panel
-│   │   │   ├── page.tsx      # Admin dashboard
-│   │   │   ├── users/        # Team & department management
-│   │   │   ├── leaves/       # Leave approvals
-│   │   │   ├── announcements/
-│   │   │   └── settings/
-│   │   ├── auth/             # Sign-in page
-│   │   └── layout.tsx
-│   ├── lib/
-│   │   ├── firebase/         # Firebase config + client
-│   │   ├── services/         # Firestore service layer
-│   │   ├── stores/           # Zustand global stores
-│   │   ├── types/            # Shared TypeScript types
-│   │   └── utils/            # Formatters and helpers
-│   └── components/           # Shared UI components
+│   │   ├── (app)/               # Employee-facing pages
+│   │   │   ├── home/            # Dashboard
+│   │   │   ├── chat/            # Messaging
+│   │   │   ├── leaves/          # Leave requests
+│   │   │   ├── people/          # Team directory
+│   │   │   ├── announcements/   # Company notices
+│   │   │   ├── documents/       # File browser
+│   │   │   ├── settings/        # Profile & preferences
+│   │   │   └── layout.tsx       # App shell (sidebar + mobile nav)
+│   │   ├── admin/               # Admin panel
+│   │   │   ├── page.tsx         # Admin dashboard
+│   │   │   ├── users/           # Team & department management
+│   │   │   ├── leaves/          # Leave approvals
+│   │   │   ├── announcements/   # Announcement management
+│   │   │   ├── chat/            # Chat moderation
+│   │   │   ├── channels/        # Channel management
+│   │   │   ├── documents/       # Document management
+│   │   │   └── settings/        # Company settings
+│   │   ├── login/               # Sign-in page
+│   │   └── layout.tsx           # Root layout (fonts, PWA meta)
+│   ├── components/
+│   │   ├── layout/              # AppShell, DesktopSidebar, MobileNav
+│   │   └── ui/                  # Shared UI primitives
+│   ├── hooks/                   # useUnreadCounts, usePushNotifications, useRole …
+│   ├── contexts/                # AuthContext
+│   └── lib/
+│       ├── firebase/            # Firebase config
+│       ├── services/            # Firestore service layer
+│       ├── types/               # Shared TypeScript types
+│       └── utils/               # Formatters and helpers
 ├── public/
-├── .env.example              # ← copy to .env.local
+│   ├── icons/                   # PWA icons (generated by generate-icons.js)
+│   ├── firebase-messaging-sw.js # FCM service worker
+│   └── manifest.json            # Web app manifest
+├── firestore.rules              # Firestore security rules
+├── generate-icons.js            # One-time PWA icon generator
+├── .env.example                 # Environment variable template
 ├── next.config.js
 ├── tailwind.config.ts
 └── tsconfig.json
@@ -175,11 +186,12 @@ shipmate/
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run start` | Start production server |
-| `npm run lint` | ESLint |
-| `npm run type-check` | TypeScript type check (no emit) |
+| `npm run dev` | Start dev server (Turbopack) |
+| `npm run build` | Production build (no lint) |
+| `npm run start` | Serve production build |
+| `npm run lint` | Run ESLint |
+| `npm run type-check` | TypeScript check (no emit) |
+| `node generate-icons.js` | Generate PWA icons (run once after `npm install sharp`) |
 
 ---
 
@@ -193,10 +205,9 @@ shipmate/
 | `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | ✅ | Cloud Storage bucket |
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | ✅ | FCM sender ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | ✅ | Firebase app ID |
-| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | optional | Analytics |
-| `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | optional | Push notification VAPID key |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | optional | Google Analytics |
+| `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | optional | FCM Web Push VAPID key |
 | `NEXT_PUBLIC_APP_URL` | optional | Base URL (default: `http://localhost:3000`) |
-| `NEXT_PUBLIC_ALLOWED_DOMAINS` | optional | Allowed sign-up email domains |
 
 ---
 
@@ -204,8 +215,9 @@ shipmate/
 
 1. Push to GitHub
 2. Import the repo in [Vercel](https://vercel.com/)
-3. Add all `NEXT_PUBLIC_*` values in **Project Settings → Environment Variables**
-4. Deploy
+3. Add all `NEXT_PUBLIC_*` env vars in **Project Settings → Environment Variables**
+4. Add your Vercel domain to **Firebase Console → Authentication → Authorized domains**
+5. Deploy
 
 ---
 
@@ -216,7 +228,7 @@ shipmate/
 | `super_admin` | Full access — all admin features + settings |
 | `hr_admin` | Team management, leave approvals, announcements |
 | `manager` | Approve team leaves, post announcements |
-| `employee` | Submit leave, view directory, manage own profile |
+| `employee` | Submit leave, chat, view directory, manage own profile |
 
 ---
 

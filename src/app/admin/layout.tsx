@@ -57,14 +57,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="w-64 bg-gray-950 flex flex-col flex-shrink-0 h-full">
 
         {/* Logo */}
-        <div className="px-5 py-6 border-b border-white/8">
+        <div className="px-5 py-5 border-b border-white/8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#F5C518] rounded-2xl flex items-center justify-center flex-shrink-0">
-              <Shield size={18} className="text-[#1B2B5E]" strokeWidth={2.5} />
-            </div>
-            <div>
-              <p className="text-white font-bold text-sm tracking-widest uppercase">Admin Panel</p>
-              <p className="text-white/35 text-[10px] uppercase tracking-wider">Shipcube</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://www.shipcube.com/img/logo.svg"
+              alt="Shipcube"
+              className="h-7 brightness-0 invert opacity-90"
+            />
+            <div className="w-px h-5 bg-white/20 flex-shrink-0" />
+            <div className="flex items-center gap-1.5">
+              <Shield size={13} className="text-[#F5C518]" strokeWidth={2.5} />
+              <p className="text-white/70 font-semibold text-xs tracking-wider uppercase">Admin</p>
             </div>
           </div>
         </div>

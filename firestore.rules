@@ -94,11 +94,7 @@ service cloud.firestore {
     // ─── LEAVE REQUESTS ────────────────────────────────────────────
 
     match /leaveRequests/{requestId} {
-      allow read: if isSignedIn() && (
-        resource.data.employeeId == request.auth.uid ||
-        isHRorAdmin() ||
-        isManagerOrAbove()
-      );
+      allow read: if isSignedIn();
       allow create: if isSignedIn() &&
                     request.resource.data.employeeId == request.auth.uid &&
                     request.resource.data.status == 'pending';
@@ -135,7 +131,8 @@ service cloud.firestore {
       // Any signed-in employee can update ONLY the readBy field (mark as read).
       allow update: if isManagerOrAbove() || isHRorAdmin() ||
         (isSignedIn() &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']));
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
+          request.resource.data.get('readBy', []) is list);
       allow delete: if isHRorAdmin();
     }
 

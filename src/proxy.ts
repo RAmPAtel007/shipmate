@@ -14,7 +14,7 @@ const PUBLIC_PATHS = [
 
 const APP_ROOT_PATHS = ['/home', '/chat', '/leaves', '/people', '/documents', '/settings', '/announcements'];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {

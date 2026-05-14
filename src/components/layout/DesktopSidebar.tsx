@@ -42,15 +42,14 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
 
       {/* ── Workspace header ──────────────────────────────────────── */}
       <div className="px-3 py-3 border-b border-white/10 flex-shrink-0">
-        <button className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors group">
-          <div className="w-7 h-7 bg-[#F5C518] rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-[#1B2B5E] font-black text-sm leading-none">S</span>
-          </div>
-          <div className="flex-1 min-w-0 text-left">
-            <p className="text-white font-bold text-sm leading-tight truncate">Shipcube</p>
-          </div>
-          <ChevronDown size={14} className="text-white/40 group-hover:text-white/70 flex-shrink-0" />
-        </button>
+        <div className="flex items-center gap-2.5 px-2 py-1.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://www.shipcube.com/img/logo.svg"
+            alt="Shipcube"
+            className="h-6 brightness-0 invert opacity-90"
+          />
+        </div>
       </div>
 
       {/* ── Navigation ────────────────────────────────────────────── */}

@@ -4,10 +4,12 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppShell } from '@/components/layout/AppShell';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, loading } = useAuth();
   const router = useRouter();
+  usePushNotifications(currentUser?.uid);
 
   useEffect(() => {
     if (!loading && !currentUser) {
