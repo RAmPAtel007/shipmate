@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Settings, LogOut, Shield, X, ChevronRight, Megaphone, Calendar } from 'lucide-react';
+import { Bell, Settings, LogOut, Shield, X, ChevronRight, Megaphone, BellRing } from 'lucide-react';
 import Link from 'next/link';
 import { DesktopSidebar } from './DesktopSidebar';
 import { MobileNav } from './MobileNav';
@@ -264,16 +264,50 @@ function MobileProfileSheet({
 
 // ── App Shell ──────────────────────────────────────────────────────────────────
 
+import type { NotifPermission } from '@/hooks/usePushNotifications';
+
 interface AppShellProps {
   currentUser: ShipmateUser;
   children: React.ReactNode;
+  notifPermission?: NotifPermission;
+  onRequestNotifPermission?: () => void;
 }
 
-export function AppShell({ currentUser, children }: AppShellProps) {
+// ── Notification Permission Banner ─────────────────────────────────────────────
+
+function NotifPermissionBanner({ onAllow, onDismiss }: { onAllow: () => void; onDismiss: () => void }) {
+  return (
+    <div className="flex-shrink-0 bg-[#1B2B5E] border-b border-white/10 px-4 py-2.5 flex items-center gap-3">
+      <div className="w-7 h-7 rounded-full bg-[#F5C518]/20 flex items-center justify-center flex-shrink-0">
+        <BellRing size={14} className="text-[#F5C518]" />
+      </div>
+      <p className="flex-1 text-xs text-white/80 leading-snug">
+        <span className="font-semibold text-white">Enable notifications</span> to get alerts for announcements, leave updates & messages.
+      </p>
+      <button
+        onClick={onAllow}
+        className="flex-shrink-0 bg-[#F5C518] text-[#1B2B5E] text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-[#f0bc10] transition-colors"
+      >
+        Allow
+      </button>
+      <button onClick={onDismiss} className="text-white/40 hover:text-white/70 transition-colors">
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+export function AppShell({ currentUser, children, notifPermission, onRequestNotifPermission }: AppShellProps) {
   const pathname = usePathname();
   const activeTab = pathname.split('/')[1] || 'home';
   const { total: unreadCount } = useUnreadCounts();
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [notifBannerDismissed, setNotifBannerDismissed] = useState(false);
+
+  // Show banner only when permission hasn't been decided yet and user hasn't dismissed it
+  const showNotifBanner = !notifBannerDismissed
+    && notifPermission === 'default'
+    && !!onRequestNotifPermission;
 
   return (
     <div className="h-screen flex bg-white overflow-hidden">
@@ -323,6 +357,14 @@ export function AppShell({ currentUser, children }: AppShellProps) {
             </button>
           </div>
         </header>
+
+        {/* Notification permission banner */}
+        {showNotifBanner && (
+          <NotifPermissionBanner
+            onAllow={() => { onRequestNotifPermission!(); setNotifBannerDismissed(true); }}
+            onDismiss={() => setNotifBannerDismissed(true)}
+          />
+        )}
 
         {/* Page content */}
         <main className="flex-1 overflow-hidden min-h-0">

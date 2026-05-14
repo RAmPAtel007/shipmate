@@ -9,7 +9,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, loading } = useAuth();
   const router = useRouter();
-  usePushNotifications(currentUser?.uid);
+  const { permission, requestPermission } = usePushNotifications(currentUser?.uid);
 
   useEffect(() => {
     if (!loading && !currentUser) {
@@ -36,5 +36,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!currentUser) return null;
 
-  return <AppShell currentUser={currentUser}>{children}</AppShell>;
+  return (
+    <AppShell
+      currentUser={currentUser}
+      notifPermission={permission}
+      onRequestNotifPermission={requestPermission}
+    >
+      {children}
+    </AppShell>
+  );
 }

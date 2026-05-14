@@ -51,17 +51,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFirebaseUser(fbUser);
 
       if (fbUser) {
+        // Refresh session cookie on every auth state restore (keeps 15-day window alive)
+        const FIFTEEN_DAYS = 15 * 24 * 60 * 60;
+        fbUser.getIdToken().then(token => {
+          document.cookie = `shipmate_session=${token}; path=/; max-age=${FIFTEEN_DAYS}; samesite=strict`;
+        });
+
         try {
-          const profile = await getUserProfile(fbUser.uid);
+          let profile = await getUserProfile(fbUser.uid);
+
+          // Race condition on first login — profile write may not have landed yet.
+          // Retry up to 3 times with short delays before giving up.
+          if (!profile) {
+            for (let i = 0; i < 3; i++) {
+              await new Promise(res => setTimeout(res, 800));
+              profile = await getUserProfile(fbUser.uid);
+              if (profile) break;
+            }
+          }
 
           if (!profile) {
-            // Profile doesn't exist yet (race condition on first login)
+            // Still not found after retries — let handleSignIn set it
             setLoading(false);
             return;
           }
 
           if (profile.status === 'inactive') {
-            // Immediately sign out deactivated users
             await signOut();
             setCurrentUser(null);
             setFirebaseUser(null);

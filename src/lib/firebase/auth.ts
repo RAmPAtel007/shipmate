@@ -97,10 +97,11 @@ export async function signInWithEmail(email: string, password: string): Promise<
     throw new Error('Admin access only. Use Google Sign-In for regular employee access.');
   }
 
-  // Set session cookies
+  // Set session cookies (15 days)
+  const FIFTEEN_DAYS = 15 * 24 * 60 * 60;
   user.getIdToken().then(token => {
-    document.cookie = `shipmate_session=${token}; path=/; max-age=3600; samesite=strict`;
-    document.cookie = `shipmate_admin=1; path=/; max-age=3600; samesite=strict`;
+    document.cookie = `shipmate_session=${token}; path=/; max-age=${FIFTEEN_DAYS}; samesite=strict`;
+    document.cookie = `shipmate_admin=1; path=/; max-age=${FIFTEEN_DAYS}; samesite=strict`;
   });
 
   return profile;
@@ -124,9 +125,10 @@ export async function createOrGetUserProfile(firebaseUser: User): Promise<Shipma
   const userRef = doc(db, 'users', firebaseUser.uid);
   const snap = await getDoc(userRef);
 
-  // Set session cookie for middleware route protection
+  // Set session cookie for middleware route protection (15 days)
+  const FIFTEEN_DAYS = 15 * 24 * 60 * 60;
   firebaseUser.getIdToken().then(token => {
-    document.cookie = `shipmate_session=${token}; path=/; max-age=3600; samesite=strict`;
+    document.cookie = `shipmate_session=${token}; path=/; max-age=${FIFTEEN_DAYS}; samesite=strict`;
   });
 
   if (snap.exists()) {
