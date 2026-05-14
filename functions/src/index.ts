@@ -262,17 +262,30 @@ export const onNewMessage = functions
     if (msg.messageType === 'system') return; // Don't notify for bot messages
     if (!msg.channelId || !msg.senderId) return;
 
-    // Get channel members
+    // Get channel info
     const channelSnap = await db.collection('channels').doc(msg.channelId).get();
     if (!channelSnap.exists) return;
 
     const channel = channelSnap.data()!;
-    const members: string[] = channel.members ?? [];
+    const channelType: string = channel.type ?? 'public'; // 'public' | 'private' | 'dm' | 'department'
 
-    // Get FCM tokens for all members except sender
-    const recipientIds = members.filter((id: string) => id !== msg.senderId);
+    let recipientIds: string[] = [];
+
+    if (channelType === 'public') {
+      // Public channels → notify ALL active employees except the sender
+      const allUsersSnap = await db.collection('users').where('status', '==', 'active').get();
+      recipientIds = allUsersSnap.docs
+        .map(d => d.id)
+        .filter(id => id !== msg.senderId);
+    } else {
+      // DM / private / department channels → only explicit members except sender
+      const members: string[] = channel.members ?? [];
+      recipientIds = members.filter((id: string) => id !== msg.senderId);
+    }
+
     if (!recipientIds.length) return;
 
+    // Collect FCM tokens for all recipients
     const userSnaps = await Promise.all(
       recipientIds.map(id => db.collection('users').doc(id).get())
     );
@@ -281,13 +294,15 @@ export const onNewMessage = functions
     for (const userSnap of userSnaps) {
       if (!userSnap.exists) continue;
       const userData = userSnap.data()!;
-      const userTokens: string[] = userData.notificationTokens ?? [];
-      tokens.push(...userTokens);
+      if (userData.fcmToken) tokens.push(userData.fcmToken);
+      const legacyTokens: string[] = userData.notificationTokens ?? [];
+      tokens.push(...legacyTokens);
     }
 
     if (!tokens.length) return;
 
-    const channelLabel = channel.type === 'dm'
+    // DM → show sender name. Channel → show #channel-name
+    const channelLabel = channelType === 'dm'
       ? msg.senderName
       : `#${channel.name}`;
 
@@ -308,7 +323,7 @@ export const onNewMessage = functions
         webpush: {
           notification: {
             icon: '/icons/icon-192.png',
-            badge: '/icons/badge-72.png',
+            badge: '/icons/icon-72.png',
             tag: msg.channelId,
             renotify: true,
           },
@@ -316,6 +331,135 @@ export const onNewMessage = functions
             link: `/chat?channel=${msg.channelId}`,
           },
         },
+        android: {
+          notification: {
+            icon: 'ic_notification',
+            color: '#1B2B5E',
+            channelId: 'shipmate_chat',
+          },
+        },
       });
     }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// onNewAnnouncement — push notification to ALL employees when published
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const onNewAnnouncement = functions
+  .region('asia-south1')
+  .firestore.document('announcements/{announcementId}')
+  .onCreate(async (snap) => {
+    const ann = snap.data();
+    if (!ann) return;
+
+    // Get all active employees' FCM tokens
+    const usersSnap = await db.collection('users').where('status', '==', 'active').get();
+
+    const tokens: string[] = [];
+    for (const userDoc of usersSnap.docs) {
+      const data = userDoc.data();
+      if (data.fcmToken) tokens.push(data.fcmToken);
+      const legacy: string[] = data.notificationTokens ?? [];
+      tokens.push(...legacy);
+    }
+
+    if (!tokens.length) return;
+
+    const body = ann.body ?? ann.content ?? '';
+    const preview = body.length > 100 ? body.slice(0, 100) + '…' : body;
+
+    const batchSize = 500;
+    for (let i = 0; i < tokens.length; i += batchSize) {
+      const batch = tokens.slice(i, i + batchSize);
+      await messaging.sendEachForMulticast({
+        tokens: batch,
+        notification: {
+          title: `📢 ${ann.title ?? 'New Announcement'}`,
+          body: preview,
+        },
+        webpush: {
+          notification: {
+            icon: '/icons/icon-192.png',
+            badge: '/icons/icon-72.png',
+            tag: 'announcement',
+            renotify: true,
+          },
+          fcmOptions: { link: '/announcements' },
+        },
+        android: {
+          notification: {
+            icon: 'ic_notification',
+            color: '#F5C518',
+            channelId: 'shipmate_announcements',
+          },
+        },
+      });
+    }
+
+    functions.logger.info('Announcement push sent', { id: snap.id, recipients: tokens.length });
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// onLeaveDecision — push to employee when their leave is approved/rejected
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const onLeaveDecision = functions
+  .region('asia-south1')
+  .firestore.document('leaveRequests/{leaveId}')
+  .onUpdate(async (change) => {
+    const before = change.before.data();
+    const after  = change.after.data();
+
+    if (before.status === after.status) return;
+    if (!['approved', 'rejected'].includes(after.status)) return;
+
+    // Get employee's FCM token
+    const employeeSnap = await db.collection('users').doc(after.employeeId).get();
+    if (!employeeSnap.exists) return;
+
+    const employee = employeeSnap.data()!;
+    const tokens: string[] = [];
+    if (employee.fcmToken) tokens.push(employee.fcmToken);
+    const legacy: string[] = employee.notificationTokens ?? [];
+    tokens.push(...legacy);
+
+    if (!tokens.length) return;
+
+    const isApproved = after.status === 'approved';
+    const leaveTypeMap: Record<string, string> = {
+      casual: 'Casual Leave', sick: 'Sick Leave', wfh: 'WFH',
+      unpaid: 'Unpaid Leave', 'comp-off': 'Comp-Off',
+      'half-day-first': 'Half Day', 'half-day-second': 'Half Day',
+    };
+    const typeLabel = leaveTypeMap[after.type] ?? after.type;
+
+    await messaging.sendEachForMulticast({
+      tokens,
+      notification: {
+        title: isApproved ? '✅ Leave Approved' : '❌ Leave Rejected',
+        body: `Your ${typeLabel} (${after.startDate} → ${after.endDate}) has been ${after.status}.`,
+      },
+      webpush: {
+        notification: {
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-72.png',
+          tag: 'leave-decision',
+        },
+        fcmOptions: { link: '/leaves' },
+      },
+      android: {
+        notification: {
+          icon: 'ic_notification',
+          color: isApproved ? '#10B981' : '#EF4444',
+          channelId: 'shipmate_leaves',
+        },
+      },
+    });
+
+    functions.logger.info('Leave decision push sent', {
+      leaveId: change.after.id,
+      status: after.status,
+      employeeId: after.employeeId,
+    });
   });

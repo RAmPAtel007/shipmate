@@ -323,13 +323,9 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
         {/* Mobile header */}
         <header className="md:hidden flex-shrink-0 bg-[#1B2B5E] flex items-center justify-between px-4 py-3 pt-safe">
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="https://www.shipcube.com/img/logo.svg"
-              alt="Shipcube"
-              className="h-6 brightness-0 invert opacity-90"
-            />
+          <div className="flex flex-col">
+            <span className="text-white font-black text-base tracking-tight leading-none">Shipmate</span>
+            <span className="text-[#F5C518]/70 text-[8px] font-medium tracking-wide mt-0.5">powered by Shipcube Ai</span>
           </div>
 
           {/* Right: Bell + Avatar */}

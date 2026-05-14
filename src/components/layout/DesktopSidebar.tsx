@@ -42,13 +42,9 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
 
       {/* ── Workspace header ──────────────────────────────────────── */}
       <div className="px-3 py-3 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://www.shipcube.com/img/logo.svg"
-            alt="Shipcube"
-            className="h-6 brightness-0 invert opacity-90"
-          />
+        <div className="flex flex-col px-2 py-1">
+          <span className="text-white font-black text-lg tracking-tight leading-none">Shipmate</span>
+          <span className="text-[#F5C518]/70 text-[9px] font-medium tracking-wide mt-0.5">powered by Shipcube Ai</span>
         </div>
       </div>
 

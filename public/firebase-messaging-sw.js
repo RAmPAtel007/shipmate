@@ -15,6 +15,7 @@ firebase.initializeApp({
   appId:             '1:13715156531:web:251f3738bc44b7e2c0fd46',
 });
 
+
 const messaging = firebase.messaging();
 
 // Handle background push messages
