@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Search, X, Mail, Phone, MessageSquare, UserPlus, Users } from 'lucide-react';
+import { Search, X, Mail, Phone, MessageSquare, Users, MapPin } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
@@ -24,6 +24,14 @@ const DEPT_COLORS: Record<string, string> = {
   'marketing': 'bg-orange-100 text-orange-700',
   'finance':   'bg-emerald-100 text-emerald-700',
   'hr':        'bg-pink-100 text-pink-700',
+};
+
+const WAREHOUSE_MAP: Record<string, { flag: string; name: string }> = {
+  nj:  { flag: '🇺🇸', name: 'New Jersey'   },
+  pa:  { flag: '🇺🇸', name: 'Pennsylvania'  },
+  ca:  { flag: '🇺🇸', name: 'California'    },
+  tx:  { flag: '🇺🇸', name: 'Texas'         },
+  uae: { flag: '🇦🇪', name: 'Dubai, UAE'    },
 };
 
 // ── User Profile Modal ──────────────────────────────────────────────────────
@@ -139,6 +147,21 @@ function UserProfileModal({
               </div>
             </div>
           )}
+
+          {(user as any).warehouseId && WAREHOUSE_MAP[(user as any).warehouseId] && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
+              <div className="w-10 h-10 bg-sky-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                <MapPin size={16} className="text-sky-500" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 font-medium">Warehouse</p>
+                <p className="text-sm text-gray-800 font-medium">
+                  {WAREHOUSE_MAP[(user as any).warehouseId].flag}{' '}
+                  {WAREHOUSE_MAP[(user as any).warehouseId].name}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -196,6 +219,11 @@ function UserCard({
             <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full mt-1 ${DEPT_COLORS[user.department] ?? 'bg-gray-100 text-gray-600'}`}>
               {getDepartmentLabel(user.department)}
             </span>
+            {(user as any).warehouseId && WAREHOUSE_MAP[(user as any).warehouseId] && (
+              <p className="text-[11px] text-gray-400 mt-1">
+                {WAREHOUSE_MAP[(user as any).warehouseId].flag} {WAREHOUSE_MAP[(user as any).warehouseId].name}
+              </p>
+            )}
           </div>
           <RoleBadge role={user.role} />
         </div>
@@ -251,9 +279,11 @@ export default function PeoplePage() {
   const [dmLoading, setDmLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    userService.getAllUsers()
-      .then(setUsers)
-      .finally(() => setLoading(false));
+    const unsub = userService.subscribeToUsers(users => {
+      setUsers(users);
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
   const filtered = useMemo(() => {

@@ -323,9 +323,18 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
         {/* Mobile header */}
         <header className="md:hidden flex-shrink-0 bg-[#1B2B5E] flex items-center justify-between px-4 py-3 pt-safe">
           {/* Logo */}
-          <div className="flex flex-col">
-            <span className="text-white font-black text-base tracking-tight leading-none">Shipmate</span>
-            <span className="text-[#F5C518]/70 text-[8px] font-medium tracking-wide mt-0.5">powered by Shipcube Ai</span>
+          <div className="flex items-center gap-2.5">
+            {/* Icon badge */}
+            <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 shadow-inner">
+              <span className="text-[#F5C518] font-black text-sm leading-none tracking-tighter">S</span>
+            </div>
+            {/* Wordmark */}
+            <div className="flex flex-col">
+              <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipmate</span>
+              <span className="text-[#F5C518]/60 text-[8px] font-semibold tracking-[0.08em] uppercase mt-0.5">
+                powered by Shipcube Ai
+              </span>
+            </div>
           </div>
 
           {/* Right: Bell + Avatar */}

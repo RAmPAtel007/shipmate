@@ -71,11 +71,28 @@ export default function HomePage() {
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
+    let settled = false;
+    const markLoaded = () => { if (!settled) { settled = true; setLoading(false); } };
 
-    const loadBirthdays = async () => {
-      try { const data = await userService.getUpcomingBirthdays(10); setUpcomingBirthdays(data); }
-      catch (err) { console.error('[home] birthdays:', err); }
-    };
+    // ── Live user subscription for birthdays ─────────────────────────────────
+    // Re-computes whenever any user profile changes (name, birthday, etc.)
+    const unsubUsers = userService.subscribeToUsers(users => {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const upcoming: Array<ShipmateUser & { daysUntil: number }> = [];
+      for (const u of users) {
+        if (!u.birthday) continue;
+        const [, mm, dd] = u.birthday.split('-').map(Number);
+        const thisYear = new Date(now.getFullYear(), mm - 1, dd);
+        if (thisYear < now) thisYear.setFullYear(now.getFullYear() + 1);
+        const diff = Math.round((thisYear.getTime() - now.getTime()) / 86400000);
+        if (diff <= 10) upcoming.push({ ...u, daysUntil: diff });
+      }
+      upcoming.sort((a, b) => a.daysUntil - b.daysUntil);
+      setUpcomingBirthdays(upcoming);
+      markLoaded();
+    });
+
     const loadAnnouncements = async () => {
       try { const data = await announcementService.getLatestAnnouncements(5); setAnnouncements(data); }
       catch (err) { console.error('[home] announcements:', err); }
@@ -90,8 +107,10 @@ export default function HomePage() {
       catch (err) { console.error('[home] pending leaves:', err); }
     };
 
-    Promise.all([loadBirthdays(), loadAnnouncements(), loadLeaves(), loadPending()])
-      .finally(() => setLoading(false));
+    Promise.all([loadAnnouncements(), loadLeaves(), loadPending()])
+      .finally(markLoaded);
+
+    return () => unsubUsers();
   }, [can.viewAllLeaves]);
 
   const birthdaysThisWeek = upcomingBirthdays.filter(u => u.daysUntil <= 7);

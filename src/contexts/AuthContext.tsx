@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import type { User } from 'firebase/auth';
 import {
   onAuthStateChanged,
@@ -9,6 +9,8 @@ import {
   signOut,
   getUserProfile,
 } from '@/lib/firebase/auth';
+import { onSnapshot, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 import type { ShipmateUser } from '@/lib/types';
 
 // ─── CONTEXT TYPES ────────────────────────────────────────────────────────────
@@ -44,10 +46,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Holds the live Firestore listener for the logged-in user's profile doc
+  const profileUnsubRef = useRef<(() => void) | null>(null);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(async (fbUser) => {
+      // Cancel any existing profile listener before switching users
+      profileUnsubRef.current?.();
+      profileUnsubRef.current = null;
+
       setFirebaseUser(fbUser);
 
       if (fbUser) {
@@ -81,10 +89,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setCurrentUser(null);
             setFirebaseUser(null);
             setError('Your account has been deactivated. Please contact HR.');
-          } else {
-            setCurrentUser(profile);
-            setError(null);
+            setLoading(false);
+            return;
           }
+
+          setCurrentUser(profile);
+          setError(null);
+
+          // ── Live profile listener ───────────────────────────────────────────
+          // After the initial load, subscribe to real-time changes so that when
+          // an admin updates this user's profile (name, role, department, etc.)
+          // the change propagates instantly without requiring a page refresh.
+          profileUnsubRef.current = onSnapshot(
+            doc(db, 'users', fbUser.uid),
+            snap => {
+              if (!snap.exists()) return;
+              const updated = { uid: snap.id, ...snap.data() } as ShipmateUser;
+              if (updated.status === 'inactive') {
+                // Account deactivated by admin — force sign out
+                signOut();
+                setCurrentUser(null);
+                setFirebaseUser(null);
+                setError('Your account has been deactivated. Please contact HR.');
+              } else {
+                setCurrentUser(updated);
+              }
+            },
+            err => console.error('[AuthContext] profile listener error:', err),
+          );
         } catch (err) {
           console.error('[AuthContext] Failed to load user profile:', err);
           setError('Failed to load your profile. Please try again.');
@@ -97,7 +129,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      profileUnsubRef.current?.();
+      profileUnsubRef.current = null;
+    };
   }, []);
 
   const handleSignIn = useCallback(async () => {

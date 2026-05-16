@@ -3,21 +3,22 @@
 import { useEffect, useState } from 'react';
 import { Hash, Plus, Archive, ArchiveRestore, ChevronDown, ChevronRight, X } from 'lucide-react';
 
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils/cn';
 import toast from 'react-hot-toast';
 import type { Channel } from '@/lib/types';
 
-const CHANNEL_TYPES = ['public', 'department'] as const;
-const DEPARTMENTS = ['ai-team', 'marketing', 'finance', 'hr'] as const;
+interface DeptRecord { id: string; name: string; }
 
-function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateModal({
+  onClose, onCreated, departments,
+}: { onClose: () => void; onCreated: () => void; departments: DeptRecord[] }) {
   const { currentUser } = useAuth();
   const [name, setName] = useState('');
   const [type, setType] = useState<'public' | 'department'>('public');
-  const [dept, setDept] = useState('ai-team');
+  const [dept, setDept] = useState(departments[0]?.id ?? '');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -66,10 +67,16 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           {type === 'department' && (
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Department</label>
-              <select value={dept} onChange={e => setDept(e.target.value)}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E]">
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              {departments.length === 0 ? (
+                <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                  No departments yet — add them in Admin Settings first.
+                </p>
+              ) : (
+                <select value={dept} onChange={e => setDept(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E]">
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              )}
             </div>
           )}
           <div>
@@ -95,7 +102,10 @@ const TYPE_COLOR: Record<string, string> = {
   department: 'bg-purple-100 text-purple-700',
 };
 
-function ChannelRow({ channel, onToggleArchive }: { channel: Channel; onToggleArchive: (c: Channel) => void }) {
+function ChannelRow({ channel, onToggleArchive, departments }: { channel: Channel; onToggleArchive: (c: Channel) => void; departments: DeptRecord[] }) {
+  const deptName = channel.departmentId
+    ? (departments.find(d => d.id === channel.departmentId)?.name ?? channel.departmentId)
+    : '—';
   return (
     <tr className="hover:bg-gray-50/60 transition-colors">
       <td className="px-6 py-4">
@@ -117,7 +127,7 @@ function ChannelRow({ channel, onToggleArchive }: { channel: Channel; onToggleAr
         </span>
       </td>
       <td className="px-6 py-4">
-        <span className="text-sm text-gray-600">{channel.departmentId ?? '—'}</span>
+        <span className="text-sm text-gray-600">{deptName}</span>
       </td>
       <td className="px-6 py-4 text-right">
         <button
@@ -148,6 +158,7 @@ function SkeletonRows() {
 
 export default function AdminChannelsPage() {
   const [channels, setChannels]       = useState<Channel[]>([]);
+  const [departments, setDepartments] = useState<DeptRecord[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showCreate, setShowCreate]   = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -160,7 +171,16 @@ export default function AdminChannelsPage() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Live departments listener — updates as admin adds/removes departments
+    const unsub = onSnapshot(collection(db, 'departments'), snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, name: d.data().name as string }));
+      docs.sort((a, b) => a.name.localeCompare(b.name));
+      setDepartments(docs);
+    });
+    return () => unsub();
+  }, []);
 
   async function toggleArchive(channel: Channel) {
     await updateDoc(doc(db, 'channels', channel.id), { isArchived: !channel.isArchived });
@@ -216,7 +236,7 @@ export default function AdminChannelsPage() {
               </tr>
             ) : (
               active.map(channel => (
-                <ChannelRow key={channel.id} channel={channel} onToggleArchive={toggleArchive} />
+                <ChannelRow key={channel.id} channel={channel} onToggleArchive={toggleArchive} departments={departments} />
               ))
             )}
           </tbody>
@@ -274,7 +294,11 @@ export default function AdminChannelsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-400">{channel.departmentId ?? '—'}</span>
+                        <span className="text-sm text-gray-400">
+                          {channel.departmentId
+                            ? (departments.find(d => d.id === channel.departmentId)?.name ?? channel.departmentId)
+                            : '—'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button
@@ -294,7 +318,7 @@ export default function AdminChannelsPage() {
         </div>
       )}
 
-      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreated={load} departments={departments} />}
     </div>
   );
 }

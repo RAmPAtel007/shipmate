@@ -6,32 +6,38 @@ import {
 import {
   Hash, Send, ArrowLeft, Paperclip, Copy, ChevronDown,
   Plus, Smile, Trash2, MessageSquare, Search, Bold, Italic,
+  Loader2, AlertCircle, CheckCircle2, X as XIcon,
 } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, EmptyState } from '@/components/ui';
 import { chatService } from '@/lib/services/chatService';
 import { storageService } from '@/lib/services/storageService';
+import { userService } from '@/lib/services/userService';
 import { markChannelRead } from '@/hooks/useUnreadCounts';
 import {
   formatMessageTime, truncateText, isLongText, looksLikeCode,
 } from '@/lib/utils/formatters';
 import type { Channel, Message } from '@/lib/types';
+import type { MessageAttachment } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { useUnreadCounts } from '@/hooks/useUnreadCounts';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getDMName(channel: Channel, currentUserId: string): string {
+function getDMName(channel: Channel, currentUserId: string, userMap?: Map<string, string>): string {
   if (channel.type !== 'dm') return channel.name;
-  const names = channel.participantNames ?? {};
   const otherUid = channel.members.find(uid => uid !== currentUserId);
-  if (otherUid && names[otherUid]) return names[otherUid];
-  return otherUid ? `User (${otherUid.slice(0, 6)}…)` : 'Direct Message';
+  if (otherUid) {
+    return userMap?.get(otherUid)
+      ?? (channel.participantNames ?? {})[otherUid]
+      ?? `User (${otherUid.slice(0, 6)}…)`;
+  }
+  return 'Direct Message';
 }
 
-function getDMInitials(channel: Channel, currentUserId: string): string {
-  const name = getDMName(channel, currentUserId);
+function getDMInitials(channel: Channel, currentUserId: string, userMap?: Map<string, string>): string {
+  const name = getDMName(channel, currentUserId, userMap);
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 }
 
@@ -45,6 +51,24 @@ function safeDate(ts: any): Date {
 type ReactionMap = Record<string, { count: number; userIds: string[]; emoji: string }>;
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '✅', '🔥'];
+
+const EMOJI_PICKER_LIST = [
+  '😀','😂','🥰','😍','😎','🤔','😅','🙏','👍','❤️',
+  '🔥','🎉','✅','💪','🚀','👀','💯','🤝','😮','🥳',
+  '🤣','😊','💡','⚡','🎯','🌟','💥','🙌','😬','🤯',
+  '👏','🫡','🫶','😭','😤','🤦','🤷','💀','🙃','😴',
+];
+
+function renderMarkdown(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*\n]+\*\*|_[^_\n]+_)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**'))
+      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+    if (part.startsWith('_') && part.endsWith('_'))
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
 
 interface MsgGroup {
   key: string;
@@ -97,9 +121,10 @@ const EmojiPicker = memo(function EmojiPicker({
 // ── Message bubble ────────────────────────────────────────────────────────────
 
 const MessageBubble = memo(function MessageBubble({
-  message, isFirst, currentUserId, onReact, onDelete,
+  message, isFirst, currentUserId, photoMap, onReact, onDelete,
 }: {
   message: Message; isFirst: boolean; currentUserId: string;
+  photoMap?: Map<string, string | null>;
   onReact: (id: string, emoji: string, reactions: ReactionMap) => void;
   onDelete: (id: string) => void;
 }) {
@@ -109,6 +134,9 @@ const MessageBubble = memo(function MessageBubble({
   const [copied, setCopied] = useState(false);
   const isOwn = message.senderId === currentUserId;
   const isCode = message.messageType === 'code' || looksLikeCode(message.text);
+  const livePhoto = photoMap?.has(message.senderId)
+    ? photoMap.get(message.senderId)
+    : message.senderPhotoURL;
 
   async function copyText() {
     await navigator.clipboard.writeText(fullText ?? message.text);
@@ -120,7 +148,7 @@ const MessageBubble = memo(function MessageBubble({
     return (
       <div className={`flex gap-3 px-4 py-0.5 ${isFirst ? 'pt-3' : ''}`}>
         {isFirst ? (
-          <Avatar name={message.senderName} src={message.senderPhotoURL} size="sm" className="flex-shrink-0 mt-0.5 opacity-30" />
+          <Avatar name={message.senderName} src={livePhoto} size="sm" className="flex-shrink-0 mt-0.5 opacity-30" />
         ) : (
           <div className="w-8 flex-shrink-0" />
         )}
@@ -151,7 +179,7 @@ const MessageBubble = memo(function MessageBubble({
       </div>
 
       {isFirst ? (
-        <Avatar name={message.senderName} src={message.senderPhotoURL} size="sm" className="flex-shrink-0 mt-0.5" />
+        <Avatar name={message.senderName} src={livePhoto} size="sm" className="flex-shrink-0 mt-0.5" />
       ) : (
         <div className="w-8 flex-shrink-0" />
       )}
@@ -207,7 +235,7 @@ const MessageBubble = memo(function MessageBubble({
             )}
           </div>
         ) : (
-          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{message.text}</p>
+          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{renderMarkdown(message.text ?? '')}</p>
         )}
         {message.attachments?.map(att => (
           <div key={att.id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mt-1.5 max-w-xs">
@@ -247,29 +275,58 @@ const MessageBubble = memo(function MessageBubble({
 // ── Message group ─────────────────────────────────────────────────────────────
 
 const MessageGroupItem = memo(function MessageGroupItem({
-  group, currentUserId, onReact, onDelete,
+  group, currentUserId, photoMap, onReact, onDelete,
 }: {
   group: MsgGroup; currentUserId: string;
+  photoMap?: Map<string, string | null>;
   onReact: (id: string, emoji: string, reactions: ReactionMap) => void;
   onDelete: (id: string) => void;
 }) {
   return (
     <div>
       {group.messages.map((msg, i) => (
-        <MessageBubble key={msg.id} message={msg} isFirst={i === 0} currentUserId={currentUserId} onReact={onReact} onDelete={onDelete} />
+        <MessageBubble key={msg.id} message={msg} isFirst={i === 0} currentUserId={currentUserId} photoMap={photoMap} onReact={onReact} onDelete={onDelete} />
       ))}
     </div>
   );
 });
 
+// ── Pending attachment type ───────────────────────────────────────────────────
+
+interface PendingAttachment {
+  id: string; name: string; size: number; type: string;
+  url?: string; storagePath?: string; uploading: boolean; error?: string;
+}
+
 // ── Message input ─────────────────────────────────────────────────────────────
 
-function MessageInput({ channelName, onSend }: { channelName: string; onSend: (text: string) => Promise<void> }) {
+function MessageInput({
+  channelName, channelId, onSend,
+}: {
+  channelName: string;
+  channelId: string;
+  onSend: (text: string, attachments?: MessageAttachment[]) => Promise<void>;
+}) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isEmpty = !text.trim();
-  const isLong = isLongText(text);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const textareaRef  = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const emojiRef     = useRef<HTMLDivElement>(null);
+
+  const readyAttachments = pendingAttachments.filter(a => a.url && !a.error);
+  const isEmpty = !text.trim() && readyAttachments.length === 0;
+  const isLong  = isLongText(text);
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (emojiRef.current && !emojiRef.current.contains(e.target as Node))
+        setShowEmojiPicker(false);
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
 
   function autoResize() {
     const el = textareaRef.current;
@@ -279,16 +336,71 @@ function MessageInput({ channelName, onSend }: { channelName: string; onSend: (t
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
   }
 
-  async function handleSend() {
+  function applyFormat(prefix: string, suffix: string) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    const sel   = text.slice(start, end) || 'text';
+    const next  = text.slice(0, start) + prefix + sel + suffix + text.slice(end);
+    setText(next);
+    setTimeout(() => {
+      el.selectionStart = start + prefix.length;
+      el.selectionEnd   = start + prefix.length + sel.length;
+      el.focus();
+    }, 0);
+  }
+
+  function insertEmoji(emoji: string) {
+    const el  = textareaRef.current;
+    const pos = el ? el.selectionStart : text.length;
+    setText(text.slice(0, pos) + emoji + text.slice(pos));
+    setShowEmojiPicker(false);
+    setTimeout(() => {
+      if (el) { el.selectionStart = pos + emoji.length; el.selectionEnd = pos + emoji.length; el.focus(); }
+    }, 0);
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    e.target.value = '';
+    const newPending: PendingAttachment[] = files.map(f => ({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}_${f.name}`,
+      name: f.name, size: f.size, type: f.type, uploading: true,
+    }));
+    setPendingAttachments(prev => [...prev, ...newPending]);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const pid  = newPending[i].id;
+      try {
+        const { url, storagePath } = await storageService.uploadChatAttachment(channelId, pid, file);
+        setPendingAttachments(prev =>
+          prev.map(a => a.id === pid ? { ...a, url, storagePath, uploading: false } : a)
+        );
+      } catch (err: any) {
+        setPendingAttachments(prev =>
+          prev.map(a => a.id === pid ? { ...a, uploading: false, error: err.message ?? 'Upload failed' } : a)
+        );
+      }
+    }
+  }
+
+  async function doSend() {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    if ((!trimmed && readyAttachments.length === 0) || sending) return;
     setSending(true);
     try {
-      await onSend(trimmed);
+      const attachments: MessageAttachment[] = readyAttachments.map(a => ({
+        id: a.id, name: a.name, url: a.url!, storagePath: a.storagePath!,
+        size: a.size, type: a.type,
+      }));
+      await onSend(trimmed, attachments.length > 0 ? attachments : undefined);
       setText('');
+      setPendingAttachments([]);
       setTimeout(() => { if (textareaRef.current) textareaRef.current.style.height = 'auto'; }, 0);
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to send message');
@@ -297,12 +409,31 @@ function MessageInput({ channelName, onSend }: { channelName: string; onSend: (t
 
   return (
     <div className="px-4 pb-4 pt-2 flex-shrink-0">
-      {isLong && (
-        <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs text-amber-700">
-          <span className="font-semibold">Long text</span>
-          <span className="text-amber-600">— will be stored in the cloud</span>
+      {pendingAttachments.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {pendingAttachments.map(att => (
+            <div key={att.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
+              att.error ? 'border-red-200 bg-red-50' : att.uploading ? 'border-blue-100 bg-blue-50' : 'border-green-200 bg-green-50'
+            }`}>
+              {att.uploading
+                ? <Loader2 size={11} className="animate-spin text-blue-400" />
+                : att.error
+                  ? <AlertCircle size={11} className="text-red-400" />
+                  : <CheckCircle2 size={11} className="text-green-500" />
+              }
+              <span className="text-gray-700 max-w-[100px] truncate">{att.name}</span>
+              <button
+                type="button"
+                onClick={() => setPendingAttachments(p => p.filter(a => a.id !== att.id))}
+                className="text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <XIcon size={11} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
+
       <div className={`border rounded-xl overflow-hidden transition-colors bg-white ${isEmpty ? 'border-gray-200' : 'border-gray-300'} focus-within:border-gray-400 focus-within:shadow-sm`}>
         <textarea
           ref={textareaRef}
@@ -316,20 +447,88 @@ function MessageInput({ channelName, onSend }: { channelName: string; onSend: (t
         />
         <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
           <div className="flex items-center gap-0.5">
-            <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors" title="Bold"><Bold size={14} /></button>
-            <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors" title="Italic"><Italic size={14} /></button>
+
+            {/* Bold */}
+            <button
+              type="button"
+              onClick={() => applyFormat('**', '**')}
+              className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              title="Bold"
+            >
+              <Bold size={14} />
+            </button>
+
+            {/* Italic */}
+            <button
+              type="button"
+              onClick={() => applyFormat('_', '_')}
+              className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              title="Italic"
+            >
+              <Italic size={14} />
+            </button>
+
             <div className="w-px h-4 bg-gray-200 mx-1" />
-            <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors" title="Attach"><Paperclip size={14} /></button>
-            <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors" title="Emoji"><Smile size={14} /></button>
+
+            {/* File attach */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              title="Attach file"
+            >
+              <Paperclip size={14} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              accept="image/*,.pdf,.docx,.xlsx,.txt,.zip"
+              onChange={handleFileChange}
+            />
+
+            {/* Emoji picker */}
+            <div className="relative" ref={emojiRef}>
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(p => !p)}
+                className={`p-1.5 rounded-md hover:bg-gray-100 transition-colors ${
+                  showEmojiPicker ? 'text-[#F5C518] bg-[#F5C518]/10' : 'text-gray-400 hover:text-gray-700'
+                }`}
+                title="Emoji"
+              >
+                <Smile size={14} />
+              </button>
+              {showEmojiPicker && (
+                <div className="absolute bottom-full mb-2 left-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl p-2 w-[228px]">
+                  <div className="grid grid-cols-8 gap-0.5">
+                    {EMOJI_PICKER_LIST.map(e => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => insertEmoji(e)}
+                        className="text-base leading-none p-1 rounded hover:bg-gray-100 transition-colors"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
             {text.length > 500 && <span className="text-[10px] text-gray-400">{text.length.toLocaleString()}</span>}
             <button
-              onClick={handleSend}
+              onClick={doSend}
               disabled={isEmpty || sending}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isEmpty || sending ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-[#F5C518] text-gray-900 hover:bg-[#D4A016] active:scale-95'}`}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                isEmpty || sending ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-[#F5C518] text-gray-900 hover:bg-[#D4A016] active:scale-95'
+              }`}
             >
-              <Send size={14} />
+              {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={14} />}
             </button>
           </div>
         </div>
@@ -341,17 +540,20 @@ function MessageInput({ channelName, onSend }: { channelName: string; onSend: (t
 // ── Admin-themed channel sidebar ──────────────────────────────────────────────
 
 const ChannelItem = memo(function ChannelItem({
-  channel, isActive, currentUserId, unread, onSelect,
+  channel, isActive, currentUserId, unread, userMap, photoMap, onSelect,
 }: {
-  channel: Channel; isActive: boolean; currentUserId: string; unread: boolean; onSelect: () => void;
+  channel: Channel; isActive: boolean; currentUserId: string; unread: boolean;
+  userMap: Map<string, string>; photoMap?: Map<string, string | null>; onSelect: () => void;
 }) {
   const isDM = channel.type === 'dm';
   const isDept = channel.type === 'department';
   const displayName = isDM
-    ? getDMName(channel, currentUserId)
+    ? getDMName(channel, currentUserId, userMap)
     : isDept && channel.departmentId
       ? `${channel.name} (${channel.departmentId})`
       : channel.name;
+  const otherUid = isDM ? channel.members.find(uid => uid !== currentUserId) : undefined;
+  const dmPhoto = otherUid ? photoMap?.get(otherUid) : undefined;
 
   return (
     <button
@@ -366,9 +568,13 @@ const ChannelItem = memo(function ChannelItem({
     >
       {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#F5C518] rounded-r-full" />}
       {isDM ? (
-        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${isActive ? 'bg-[#F5C518]/20 text-[#F5C518]' : 'bg-white/10 text-white/60'}`}>
-          {getDMInitials(channel, currentUserId)}
-        </div>
+        dmPhoto
+          ? <img src={dmPhoto} alt={displayName} className="w-5 h-5 rounded-full flex-shrink-0 object-cover" />
+          : (
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${isActive ? 'bg-[#F5C518]/20 text-[#F5C518]' : 'bg-white/10 text-white/60'}`}>
+              {getDMInitials(channel, currentUserId, userMap)}
+            </div>
+          )
       ) : (
         <Hash size={14} className={`flex-shrink-0 ${isActive ? 'text-[#F5C518]' : 'text-white/30'}`} />
       )}
@@ -381,10 +587,11 @@ const ChannelItem = memo(function ChannelItem({
 });
 
 function AdminChatSidebar({
-  channels, activeId, currentUserId, unreadByChannel, onSelect,
+  channels, activeId, currentUserId, unreadByChannel, userMap, photoMap, onSelect,
 }: {
   channels: Channel[]; activeId: string | null; currentUserId: string;
-  unreadByChannel: Record<string, number>; onSelect: (id: string) => void;
+  unreadByChannel: Record<string, number>; userMap: Map<string, string>;
+  photoMap?: Map<string, string | null>; onSelect: (id: string) => void;
 }) {
   const publicChannels = channels.filter(c => c.type === 'public');
   const deptChannels = channels.filter(c => c.type === 'department');
@@ -407,7 +614,7 @@ function AdminChatSidebar({
             </div>
             <div className="space-y-0.5">
               {publicChannels.map(ch => (
-                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} onSelect={() => onSelect(ch.id)} />
+                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} userMap={userMap} photoMap={photoMap} onSelect={() => onSelect(ch.id)} />
               ))}
             </div>
           </section>
@@ -420,7 +627,7 @@ function AdminChatSidebar({
             </div>
             <div className="space-y-0.5">
               {deptChannels.map(ch => (
-                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} onSelect={() => onSelect(ch.id)} />
+                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} userMap={userMap} photoMap={photoMap} onSelect={() => onSelect(ch.id)} />
               ))}
             </div>
           </section>
@@ -434,7 +641,7 @@ function AdminChatSidebar({
             </div>
             <div className="space-y-0.5">
               {dms.map(ch => (
-                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} onSelect={() => onSelect(ch.id)} />
+                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} userMap={userMap} photoMap={photoMap} onSelect={() => onSelect(ch.id)} />
               ))}
             </div>
           </section>
@@ -451,15 +658,18 @@ function AdminChatSidebar({
 // ── Conversation panel ────────────────────────────────────────────────────────
 
 function Conversation({
-  channel, currentUserId, onBack,
+  channel, currentUserId, userMap, photoMap, onBack,
 }: {
-  channel: Channel; currentUserId: string; onBack?: () => void;
+  channel: Channel; currentUserId: string; userMap?: Map<string, string>;
+  photoMap?: Map<string, string | null>; onBack?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const { currentUser } = useAuth();
   const bottomRef = useRef<HTMLDivElement>(null);
   const isDM = channel.type === 'dm';
-  const displayName = isDM ? getDMName(channel, currentUserId) : channel.name;
+  const displayName = isDM ? getDMName(channel, currentUserId, userMap) : channel.name;
+  const otherUid = isDM ? channel.members.find(uid => uid !== currentUserId) : undefined;
+  const dmHeaderPhoto = otherUid ? photoMap?.get(otherUid) : undefined;
 
   useEffect(() => {
     setMessages([]);
@@ -470,7 +680,7 @@ function Conversation({
     return unsub;
   }, [channel.id]);
 
-  const handleSend = useCallback(async (text: string) => {
+  const handleSend = useCallback(async (text: string, attachments?: MessageAttachment[]) => {
     if (!currentUser) return;
     await chatService.sendMessage({
       channelId: channel.id,
@@ -478,6 +688,7 @@ function Conversation({
       senderName: currentUser.name,
       senderPhotoURL: currentUser.photoURL ?? null,
       text,
+      attachments,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel.id, currentUser?.uid]);
@@ -503,13 +714,19 @@ function Conversation({
             <ArrowLeft size={18} />
           </button>
         )}
-        <div className={`w-8 h-8 flex items-center justify-center flex-shrink-0 ${isDM ? 'rounded-full bg-gray-100' : 'rounded-lg bg-gray-100'}`}>
-          {isDM ? (
-            <span className="text-gray-700 text-xs font-bold">{getDMInitials(channel, currentUserId)}</span>
-          ) : (
+        {isDM ? (
+          dmHeaderPhoto
+            ? <img src={dmHeaderPhoto} alt={displayName} className="w-8 h-8 rounded-full flex-shrink-0 object-cover" />
+            : (
+              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <span className="text-gray-700 text-xs font-bold">{getDMInitials(channel, currentUserId, userMap)}</span>
+              </div>
+            )
+        ) : (
+          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
             <Hash size={15} className="text-gray-500" />
-          )}
-        </div>
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-gray-900 leading-tight">
             {isDM ? displayName : `#${displayName}`}
@@ -538,14 +755,14 @@ function Conversation({
           <>
             <div className="pt-4" />
             {groups.map(group => (
-              <MessageGroupItem key={group.key} group={group} currentUserId={currentUserId} onReact={handleReact} onDelete={handleDelete} />
+              <MessageGroupItem key={group.key} group={group} currentUserId={currentUserId} photoMap={photoMap} onReact={handleReact} onDelete={handleDelete} />
             ))}
             <div ref={bottomRef} className="h-4" />
           </>
         )}
       </div>
 
-      <MessageInput channelName={isDM ? displayName : `#${displayName}`} onSend={handleSend} />
+      <MessageInput channelName={isDM ? displayName : `#${displayName}`} channelId={channel.id} onSend={handleSend} />
     </div>
   );
 }
@@ -560,8 +777,25 @@ function AdminChatInner() {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const [loaded, setLoaded] = useState(false);
+  const [userMap, setUserMap] = useState<Map<string, string>>(new Map());
+  const [photoMap, setPhotoMap] = useState<Map<string, string | null>>(new Map());
   const initialSelectDone = useRef(false);
   const { byChannel: unreadByChannel } = useUnreadCounts();
+
+  // Single subscription builds both name and photo maps so all avatars stay current
+  useEffect(() => {
+    const unsub = userService.subscribeToUsers(users => {
+      const nm = new Map<string, string>();
+      const pm = new Map<string, string | null>();
+      users.forEach(u => {
+        nm.set(u.uid, u.name);
+        pm.set(u.uid, u.photoURL ?? null);
+      });
+      setUserMap(nm);
+      setPhotoMap(pm);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -627,6 +861,8 @@ function AdminChatInner() {
           activeId={activeChannelId}
           currentUserId={currentUser?.uid ?? ''}
           unreadByChannel={unreadByChannel}
+          userMap={userMap}
+          photoMap={photoMap}
           onSelect={handleSelectChannel}
         />
       </div>
@@ -634,7 +870,7 @@ function AdminChatInner() {
       {/* Conversation */}
       {activeChannel ? (
         <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 h-full min-w-0`}>
-          <Conversation channel={activeChannel} currentUserId={currentUser?.uid ?? ''} onBack={() => setMobileView('list')} />
+          <Conversation channel={activeChannel} currentUserId={currentUser?.uid ?? ''} userMap={userMap} photoMap={photoMap} onBack={() => setMobileView('list')} />
         </div>
       ) : (
         <div className="hidden md:flex flex-1 items-center justify-center bg-white">

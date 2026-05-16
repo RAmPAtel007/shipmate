@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Home, MessageSquare, Calendar, Users,
-  FolderOpen, Settings, LogOut, Megaphone, ChevronDown, Shield,
+  FolderOpen, Settings, LogOut, Megaphone, Shield,
+  Clock, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDepartmentLabel } from '@/lib/utils/formatters';
@@ -13,7 +14,9 @@ import type { ShipmateUser } from '@/lib/types';
 const NAV_ITEMS = [
   { icon: Home,          label: 'Dashboard',     href: '/home',          key: 'home' },
   { icon: MessageSquare, label: 'Chat',           href: '/chat',          key: 'chat' },
+  { icon: Clock,         label: 'Attendance',     href: '/attendance',    key: 'attendance' },
   { icon: Calendar,      label: 'Leaves',         href: '/leaves',        key: 'leaves' },
+  { icon: Receipt,       label: 'Payslip',        href: '/payslip',       key: 'payslip' },
   { icon: Users,         label: 'People',         href: '/people',        key: 'people' },
   { icon: FolderOpen,    label: 'Documents',      href: '/documents',     key: 'documents' },
   { icon: Megaphone,     label: 'Announcements',  href: '/announcements', key: 'announcements' },
@@ -41,10 +44,19 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
     <aside className="w-[220px] h-full bg-[#1B2B5E] flex flex-col select-none">
 
       {/* ── Workspace header ──────────────────────────────────────── */}
-      <div className="px-3 py-3 border-b border-white/10 flex-shrink-0">
-        <div className="flex flex-col px-2 py-1">
-          <span className="text-white font-black text-lg tracking-tight leading-none">Shipmate</span>
-          <span className="text-[#F5C518]/70 text-[9px] font-medium tracking-wide mt-0.5">powered by Shipcube Ai</span>
+      <div className="px-3 py-3.5 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2.5 px-1 py-0.5">
+          {/* Icon badge */}
+          <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 shadow-inner">
+            <span className="text-[#F5C518] font-black text-sm leading-none tracking-tighter">S</span>
+          </div>
+          {/* Wordmark */}
+          <div className="flex flex-col">
+            <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipmate</span>
+            <span className="text-[#F5C518]/60 text-[8px] font-semibold tracking-[0.08em] uppercase mt-0.5">
+              powered by Shipcube Ai
+            </span>
+          </div>
         </div>
       </div>
 

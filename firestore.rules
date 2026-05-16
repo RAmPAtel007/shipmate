@@ -185,5 +185,37 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // ─── PAYROLL PROFILES ──────────────────────────────────────────
+    // Salary structure per employee — HR/admin only for writes, read by self or admin
+
+    match /payrollProfiles/{uid} {
+      allow read: if isOwner(uid) || isHRorAdmin();
+      allow create, update: if isHRorAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── PAYROLL ENTRIES ───────────────────────────────────────────
+    // Monthly OT / adjustments / status — HR/admin only
+
+    match /payrollEntries/{entryId} {
+      allow read: if isHRorAdmin() ||
+        (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if isHRorAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── ATTENDANCE ────────────────────────────────────────────────
+    // Daily punch-in/out — employees write own, HR/admin can correct
+
+    match /attendance/{recordId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (
+        request.resource.data.uid == request.auth.uid || isHRorAdmin()
+      );
+      allow update: if isHRorAdmin() ||
+        (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
   }
 }

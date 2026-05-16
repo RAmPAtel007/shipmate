@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { Home, MessageSquare, Calendar, Users, Megaphone } from 'lucide-react';
+import { Home, MessageSquare, Calendar, Users, Clock } from 'lucide-react';
 import type { ShipmateUser } from '@/lib/types';
 
 const TABS = [
-  { icon: Home,          label: 'Home',    href: '/home',          key: 'home' },
-  { icon: MessageSquare, label: 'Chat',    href: '/chat',          key: 'chat' },
-  { icon: Calendar,      label: 'Leaves',  href: '/leaves',        key: 'leaves' },
-  { icon: Users,         label: 'People',  href: '/people',        key: 'people' },
-  { icon: Megaphone,     label: 'Updates', href: '/announcements', key: 'announcements' },
+  { icon: Home,          label: 'Home',       href: '/home',       key: 'home' },
+  { icon: MessageSquare, label: 'Chat',       href: '/chat',       key: 'chat' },
+  { icon: Clock,         label: 'Attendance', href: '/attendance', key: 'attendance' },
+  { icon: Calendar,      label: 'Leaves',     href: '/leaves',     key: 'leaves' },
+  { icon: Users,         label: 'People',     href: '/people',     key: 'people' },
 ] as const;
 
 interface Props {

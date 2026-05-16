@@ -1,6 +1,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
-  query, where, serverTimestamp, type DocumentData,
+  query, where, serverTimestamp, onSnapshot,
+  type DocumentData, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import type { ShipmateUser, Department } from '@/lib/types';
@@ -53,6 +54,20 @@ export const userService = {
     await updateDoc(doc(db, USERS, uid), {
       ...data,
       updatedAt: serverTimestamp(),
+    });
+  },
+
+  /**
+   * Real-time listener for all active users.
+   * Fires immediately with current data, then on every change.
+   */
+  subscribeToUsers(callback: (users: ShipmateUser[]) => void): Unsubscribe {
+    const q = query(collection(db, USERS), where('status', '==', 'active'));
+    return onSnapshot(q, snap => {
+      const users = snap.docs
+        .map(d => mapUser(d.id, d.data()))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      callback(users);
     });
   },
 

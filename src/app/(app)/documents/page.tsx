@@ -15,7 +15,7 @@ import { formatDate, formatFileSize, getDepartmentLabel } from '@/lib/utils/form
 import { cn } from '@/lib/utils/cn';
 import {
   collection, addDoc, getDocs, deleteDoc, doc,
-  query, where, serverTimestamp,
+  query, where, serverTimestamp, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import type { ShipmateDocument, DocumentFolder } from '@/lib/types';
@@ -30,31 +30,17 @@ interface FolderConfig {
   icon: string;
   color: string;
   allowedRoles: string[];
+  isDynamic?: boolean; // true = came from Firestore departments
 }
 
-const FOLDERS: FolderConfig[] = [
+// Fixed folders that always exist
+const FIXED_FOLDERS: FolderConfig[] = [
   {
     id: 'general',
     label: 'General',
     description: 'Company-wide documents',
     icon: '📁',
     color: 'bg-blue-50 border-blue-200',
-    allowedRoles: ['super_admin', 'hr_admin', 'manager', 'employee'],
-  },
-  {
-    id: 'ai-team',
-    label: 'AI Team',
-    description: 'AI team resources',
-    icon: '🤖',
-    color: 'bg-purple-50 border-purple-200',
-    allowedRoles: ['super_admin', 'hr_admin', 'manager', 'employee'],
-  },
-  {
-    id: 'marketing',
-    label: 'Marketing',
-    description: 'Marketing materials',
-    icon: '📢',
-    color: 'bg-orange-50 border-orange-200',
     allowedRoles: ['super_admin', 'hr_admin', 'manager', 'employee'],
   },
   {
@@ -295,12 +281,52 @@ function DocumentRow({
 
 export default function DocumentsPage() {
   const { currentUser } = useAuth();
-  const { isHRorAdmin, isAdmin, can } = useRole();
+  const { isHRorAdmin, isAdmin } = useRole();
 
   const [selectedFolder, setSelectedFolder] = useState<string>('general');
   const [documents, setDocuments] = useState<ShipmateDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [deptFolders, setDeptFolders] = useState<FolderConfig[]>([]);
+
+  // IDs already handled by FIXED_FOLDERS — skip to avoid duplicate keys
+  const FIXED_IDS = new Set(FIXED_FOLDERS.map(f => f.id));
+
+  const DEPT_COLORS = [
+    'bg-purple-50 border-purple-200',
+    'bg-orange-50 border-orange-200',
+    'bg-teal-50 border-teal-200',
+    'bg-indigo-50 border-indigo-200',
+    'bg-rose-50 border-rose-200',
+    'bg-cyan-50 border-cyan-200',
+  ];
+
+  // Load departments from Firestore and turn each into a folder
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'departments'), snap => {
+      const eligible = snap.docs.filter(d => !FIXED_IDS.has(d.id));
+      const folders: FolderConfig[] = eligible.map((d, i) => ({
+        id: d.id,
+        label: d.data().name as string,
+        description: `${d.data().name} team documents`,
+        icon: '🏢',
+        color: DEPT_COLORS[i % DEPT_COLORS.length],
+        allowedRoles: ['super_admin', 'hr_admin', 'manager', 'employee'],
+        isDynamic: true,
+      }));
+      folders.sort((a, b) => a.label.localeCompare(b.label));
+      setDeptFolders(folders);
+    });
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Merge: General first, then dynamic dept folders, then Finance/HR at the end
+  const FOLDERS: FolderConfig[] = [
+    FIXED_FOLDERS[0], // General
+    ...deptFolders,
+    ...FIXED_FOLDERS.slice(1), // Finance, HR
+  ];
 
   const accessibleFolders = FOLDERS.filter(f =>
     f.allowedRoles.includes(currentUser?.role ?? 'employee')
@@ -353,7 +379,9 @@ export default function DocumentsPage() {
   );
 
   const currentFolder = FOLDERS.find(f => f.id === selectedFolder);
-  const canUpload = isHRorAdmin || ['general', 'ai-team', 'marketing'].includes(selectedFolder);
+  // HR/admin can upload anywhere; employees can upload to any non-restricted folder
+  const currentFolderCfg = FOLDERS.find(f => f.id === selectedFolder);
+  const canUpload = isHRorAdmin || (currentFolderCfg?.allowedRoles.includes('employee') ?? false);
   const canDelete = isAdmin;
 
   return (

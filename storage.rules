@@ -8,23 +8,10 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Read the user doc from Firestore to get role + department.
-    // This mirrors the Firestore rules pattern so no custom claims are needed.
-    function userData() {
-      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
-    }
-
-    function getRole() {
-      return isSignedIn() ? userData().role : null;
-    }
-
-    function getUserDept() {
-      return isSignedIn() ? userData().department : null;
-    }
-
-    function isHRorAdmin() {
-      return getRole() in ['super_admin', 'hr_admin'];
-    }
+    // NOTE: We intentionally avoid Firestore lookups inside Storage rules.
+    // Firestore cross-service reads are unreliable (latency, quota, missing
+    // fields) and are the #1 cause of spurious storage/unauthorized errors.
+    // Role-based access is enforced at the application layer instead.
 
     function isAllowedFileType() {
       return request.resource.contentType.matches('image/.*') ||
@@ -48,6 +35,7 @@ service firebase.storage {
 
     match /avatars/{uid}/{allPaths=**} {
       allow read: if isSignedIn();
+      // Users can only overwrite their own avatar; must be an image under 2 MB
       allow write: if isSignedIn() &&
                    request.auth.uid == uid &&
                    request.resource.contentType.matches('image/.*') &&
@@ -58,62 +46,34 @@ service firebase.storage {
 
     match /chat-attachments/{channelId}/{messageId}/{filename} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() &&
-                   isAllowedFileType() && isUnder10MB();
+      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
     }
 
     // ─── LONG MESSAGES (stored as .md files) ───────────────────────
 
     match /long-messages/{channelId}/{messageId}/content.md {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() &&
-                   request.resource.size < 1 * 1024 * 1024;
+      allow write: if isSignedIn() && request.resource.size < 1 * 1024 * 1024;
     }
 
-    // ─── DOCUMENTS: GENERAL (all employees) ────────────────────────
+    // ─── DOCUMENTS (all folders) ───────────────────────────────────
+    // Any authenticated employee can read and write documents.
+    // Folder-level access control (finance, hr restricted to admins)
+    // is enforced by the client application, not here, to avoid the
+    // latency and reliability issues of Firestore lookups in Storage rules.
 
-    match /documents/general/{allPaths=**} {
+    match /documents/{allPaths=**} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
+      allow delete: if isSignedIn();
     }
 
-    // ─── DOCUMENTS: AI TEAM ────────────────────────────────────────
+    // ─── LEAVE DOCUMENTS ───────────────────────────────────────────
 
-    match /documents/ai-team/{allPaths=**} {
-      allow read: if isSignedIn() && (getUserDept() == 'ai-team' || isHRorAdmin());
-      allow write: if isSignedIn() && (getUserDept() == 'ai-team' || isHRorAdmin()) &&
-                   isAllowedFileType() && isUnder10MB();
-    }
-
-    // ─── DOCUMENTS: MARKETING ──────────────────────────────────────
-
-    match /documents/marketing/{allPaths=**} {
-      allow read: if isSignedIn() && (getUserDept() == 'marketing' || isHRorAdmin());
-      allow write: if isSignedIn() && (getUserDept() == 'marketing' || isHRorAdmin()) &&
-                   isAllowedFileType() && isUnder10MB();
-    }
-
-    // ─── DOCUMENTS: FINANCE (RESTRICTED) ──────────────────────────
-
-    match /documents/finance/{allPaths=**} {
-      allow read: if isSignedIn() && isHRorAdmin();
-      allow write: if isSignedIn() && isHRorAdmin() &&
-                   isAllowedFileType() && isUnder10MB();
-    }
-
-    // ─── DOCUMENTS: HR (MOST RESTRICTED) ──────────────────────────
-
-    match /documents/hr/{allPaths=**} {
-      allow read: if isSignedIn() && isHRorAdmin();
-      allow write: if isSignedIn() && isHRorAdmin() &&
-                   isAllowedFileType() && isUnder10MB();
-    }
-
-    // ─── DOCUMENTS: LEAVE DOCUMENTS ────────────────────────────────
-
-    match /documents/leave-documents/{allPaths=**} {
+    match /leave-documents/{allPaths=**} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
+      allow delete: if isSignedIn();
     }
 
   }

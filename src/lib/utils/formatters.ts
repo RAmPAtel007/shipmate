@@ -125,8 +125,10 @@ export function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength).trimEnd() + '…';
 }
 
-/** Long text threshold for chat messages — stored in Firebase Storage */
-export const LONG_TEXT_THRESHOLD = 4000;
+/** Long text threshold for chat messages — stored in Firebase Storage.
+ *  Set very high so normal messages are never flagged; only truly massive
+ *  pastes (>100 k chars) fall back to Storage to stay under Firestore's 1 MB doc limit. */
+export const LONG_TEXT_THRESHOLD = 100_000;
 
 export function isLongText(text: string): boolean {
   return text.length > LONG_TEXT_THRESHOLD;
@@ -137,7 +139,7 @@ export function looksLikeCode(text: string): boolean {
   const codePatterns = [
     /^(import|export|const|let|var|function|class|interface|type)\s/m,
     /^def |^class |^import |^from /m,
-    /^\s*(\/\/|#|\/\*|\*)/m,
+    /^\s*(\/\/|#|\/\*|\* )/m,
     /[{}();]\s*$/m,
     /=>/,
   ];

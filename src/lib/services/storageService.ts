@@ -4,19 +4,31 @@ import {
 } from 'firebase/storage';
 import { storage } from '@/lib/firebase/config';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+// 500 MB for document uploads; 50 MB for chat attachments
+const MAX_DOCUMENT_SIZE   = 500 * 1024 * 1024;
+const MAX_ATTACHMENT_SIZE =  50 * 1024 * 1024;
+
 const ALLOWED_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
   'application/pdf',
+  'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain', 'text/markdown',
-  'application/zip',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain', 'text/markdown', 'text/csv',
+  'application/zip', 'application/x-zip-compressed',
+  'application/x-rar-compressed', 'application/x-7z-compressed',
+  'application/json',
+  'video/mp4', 'video/quicktime', 'video/webm',
+  'audio/mpeg', 'audio/wav', 'audio/ogg',
 ];
 
-function validateFile(file: File) {
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`File too large. Maximum size is 10 MB. (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
+  if (file.size > maxBytes) {
+    const limitMB = (maxBytes / 1024 / 1024).toFixed(0);
+    throw new Error(`File too large. Maximum size is ${limitMB} MB. (${(file.size / 1024 / 1024).toFixed(1)} MB uploaded)`);
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     throw new Error(`File type not allowed: ${file.type}`);
@@ -44,7 +56,7 @@ export const storageService = {
     messageId: string,
     file: File
   ): Promise<{ url: string; name: string; size: number; type: string; storagePath: string }> {
-    validateFile(file);
+    validateFile(file, MAX_ATTACHMENT_SIZE);
     const path = `chat-attachments/${channelId}/${messageId}/${file.name}`;
     const storageRef = ref(storage, path);
     await uploadBytes(storageRef, file, { contentType: file.type });

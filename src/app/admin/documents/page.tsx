@@ -12,7 +12,7 @@ import { formatDate, formatFileSize } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
 import {
   collection, addDoc, getDocs, deleteDoc, doc,
-  query, where, serverTimestamp,
+  query, where, serverTimestamp, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import type { ShipmateDocument, DocumentFolder } from '@/lib/types';
@@ -27,12 +27,10 @@ interface FolderConfig {
   icon: string;
 }
 
-const FOLDERS: FolderConfig[] = [
-  { id: 'general',   label: 'General',    description: 'Company-wide documents',  icon: '📁' },
-  { id: 'ai-team',   label: 'AI Team',    description: 'AI team resources',        icon: '🤖' },
-  { id: 'marketing', label: 'Marketing',  description: 'Marketing materials',      icon: '📢' },
-  { id: 'finance',   label: 'Finance',    description: 'Financial records',        icon: '💰' },
-  { id: 'hr',        label: 'HR',         description: 'HR documents',             icon: '👥' },
+const FIXED_FOLDERS: FolderConfig[] = [
+  { id: 'general', label: 'General', description: 'Company-wide documents', icon: '📁' },
+  { id: 'finance', label: 'Finance', description: 'Financial records',       icon: '💰' },
+  { id: 'hr',      label: 'HR',      description: 'HR documents',            icon: '👥' },
 ];
 
 // ── File icon helpers ─────────────────────────────────────────────────────────
@@ -234,6 +232,35 @@ export default function AdminDocumentsPage() {
   const [documents, setDocuments] = useState<ShipmateDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [deptFolders, setDeptFolders] = useState<FolderConfig[]>([]);
+
+  // IDs that are already handled by FIXED_FOLDERS — skip them in dynamic list
+  const FIXED_IDS = new Set(FIXED_FOLDERS.map(f => f.id));
+
+  // Load departments from Firestore as dynamic folders
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'departments'), snap => {
+      const folders: FolderConfig[] = snap.docs
+        .filter(d => !FIXED_IDS.has(d.id)) // avoid duplicate keys with fixed folders
+        .map(d => ({
+          id: d.id,
+          label: d.data().name as string,
+          description: `${d.data().name} team documents`,
+          icon: '🏢',
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      setDeptFolders(folders);
+    });
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Merge: General first, then dynamic dept folders, then Finance / HR
+  const FOLDERS: FolderConfig[] = [
+    FIXED_FOLDERS[0],
+    ...deptFolders,
+    ...FIXED_FOLDERS.slice(1),
+  ];
 
   const loadDocuments = useCallback(async () => {
     if (!selectedFolder) return;

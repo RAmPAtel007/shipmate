@@ -6,13 +6,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, Calendar, MessageSquare,
   MessageCircle, Megaphone, LogOut, Shield, Settings, FolderOpen,
+  DollarSign, Clock,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const NAV = [
   { icon: LayoutDashboard, label: 'Dashboard',     href: '/admin' },
   { icon: Users,           label: 'Users',          href: '/admin/users' },
+  { icon: Clock,           label: 'Attendance',     href: '/admin/attendance' },
   { icon: Calendar,        label: 'Leaves',         href: '/admin/leaves' },
+  { icon: DollarSign,      label: 'Payroll',        href: '/admin/payroll' },
   { icon: MessageCircle,   label: 'Chat',           href: '/admin/chat' },
   { icon: MessageSquare,   label: 'Channels',       href: '/admin/channels' },
   { icon: Megaphone,       label: 'Announcements',  href: '/admin/announcements' },

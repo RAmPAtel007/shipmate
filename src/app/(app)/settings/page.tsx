@@ -142,9 +142,19 @@ function ProfileSection() {
         {/* Read-only info */}
         <div className="pt-2 border-t border-gray-100 space-y-3">
           {[
-            { label: 'Email', value: currentUser.email },
+            { label: 'Email',      value: currentUser.email },
             { label: 'Department', value: getDepartmentLabel(currentUser.department) },
-            { label: 'Role', value: getRoleLabel(currentUser.role) },
+            { label: 'Role',       value: getRoleLabel(currentUser.role) },
+            ...((currentUser as any).warehouseId ? [{
+              label: 'Warehouse',
+              value: ({
+                nj:  '🇺🇸 New Jersey',
+                pa:  '🇺🇸 Pennsylvania',
+                ca:  '🇺🇸 California',
+                tx:  '🇺🇸 Texas',
+                uae: '🇦🇪 Dubai, UAE',
+              } as Record<string, string>)[(currentUser as any).warehouseId] ?? (currentUser as any).warehouseId,
+            }] : []),
           ].map(item => (
             <div key={item.label} className="flex items-center justify-between">
               <span className="text-xs text-gray-500">{item.label}</span>
