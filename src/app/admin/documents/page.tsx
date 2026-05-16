@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Upload, FolderOpen, File, FileText, FileImage,
-  Download, Trash2, Search, X,
+  Upload, Folder, Download, Trash2, Search, X,
+  MoreVertical, Plus,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { useAuth } from '@/contexts/AuthContext';
 import { storageService } from '@/lib/services/storageService';
-import { formatDate, formatFileSize } from '@/lib/utils/formatters';
+import { formatFileSize } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
 import {
   collection, addDoc, getDocs, deleteDoc, doc,
@@ -18,206 +18,248 @@ import { db } from '@/lib/firebase/config';
 import type { ShipmateDocument, DocumentFolder } from '@/lib/types';
 import toast from 'react-hot-toast';
 
-// ── Folder config ─────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface FolderConfig {
   id: string;
   label: string;
-  description: string;
-  icon: string;
+  restricted?: boolean;
+  isDynamic?: boolean;
 }
+
+// ── Folders ───────────────────────────────────────────────────────────────────
 
 const FIXED_FOLDERS: FolderConfig[] = [
-  { id: 'general', label: 'General', description: 'Company-wide documents', icon: '📁' },
-  { id: 'finance', label: 'Finance', description: 'Financial records',       icon: '💰' },
-  { id: 'hr',      label: 'HR',      description: 'HR documents',            icon: '👥' },
+  { id: 'general', label: 'General' },
+  { id: 'finance', label: 'Finance', restricted: true },
+  { id: 'hr',      label: 'HR',      restricted: true },
 ];
 
-// ── File icon helpers ─────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getFileIcon(type: string) {
-  if (type.startsWith('image/')) return FileImage;
-  if (type === 'application/pdf') return FileText;
-  return File;
-}
-
-function getFileExt(name: string, type: string): string {
-  const ext = name.split('.').pop()?.toUpperCase();
-  if (ext && ext.length <= 4) return ext;
+function getExtLabel(name: string, type: string): string {
+  const ext = name.split('.').pop()?.toUpperCase() ?? '';
+  if (ext.length <= 5) return ext;
   if (type === 'application/pdf') return 'PDF';
   if (type.startsWith('image/')) return type.split('/')[1]?.toUpperCase() ?? 'IMG';
   return 'FILE';
 }
 
-// ── Upload zone (admin themed) ────────────────────────────────────────────────
+function getExtStyle(type: string): { bg: string; text: string } {
+  if (type === 'application/pdf') return { bg: 'bg-red-500',   text: 'text-white' };
+  if (type.startsWith('image/'))  return { bg: 'bg-orange-400',text: 'text-white' };
+  if (type.includes('word') || type.includes('wordprocessingml')) return { bg: 'bg-blue-500', text: 'text-white' };
+  if (type.includes('sheet') || type.includes('excel') || type.includes('spreadsheetml')) return { bg: 'bg-green-500', text: 'text-white' };
+  if (type.includes('presentation') || type.includes('powerpoint')) return { bg: 'bg-orange-500', text: 'text-white' };
+  return { bg: 'bg-gray-500', text: 'text-white' };
+}
 
-function UploadZone({
-  folderId,
-  onUploaded,
-  userId,
+function timeAgo(ts: any): string {
+  if (!ts) return '';
+  const ms = ts?.toMillis?.() ?? (ts?.seconds ? ts.seconds * 1000 : Date.now());
+  const diff = Date.now() - ms;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+// ── Document Card ─────────────────────────────────────────────────────────────
+
+function DocumentCard({
+  doc: d,
+  onDelete,
 }: {
-  folderId: string;
-  onUploaded: () => void;
-  userId: string;
+  doc: ShipmateDocument;
+  onDelete: (id: string, storagePath: string) => void;
 }) {
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<{ current: number; total: number; name: string; pct: number } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const ext = getExtLabel(d.name, d.fileType ?? '');
+  const { bg, text } = getExtStyle(d.fileType ?? '');
 
-  const onDrop = useCallback(
-    async (acceptedFiles: File[], rejectedFiles: any[]) => {
-      if (rejectedFiles.length > 0) {
-        const err = rejectedFiles[0].errors?.[0];
-        if (err?.code === 'file-too-large') toast.error(`${rejectedFiles[0].file.name}: too large (max 10 MB)`);
-        else if (err?.code === 'file-invalid-type') toast.error(`${rejectedFiles[0].file.name}: file type not allowed`);
-        else toast.error(`${rejectedFiles[0].file.name}: rejected`);
-      }
-      if (!acceptedFiles.length) return;
-      setUploading(true);
-      let successCount = 0;
-
-      for (let i = 0; i < acceptedFiles.length; i++) {
-        const file = acceptedFiles[i];
-        try {
-          setProgress({ current: i + 1, total: acceptedFiles.length, name: file.name, pct: 0 });
-          const { url, storagePath } = await storageService.uploadDocument(
-            folderId, file, userId,
-            pct => setProgress(p => p ? { ...p, pct } : null)
-          );
-          await addDoc(collection(db, 'documents'), {
-            name: file.name,
-            originalName: file.name,
-            folder: folderId as DocumentFolder,
-            downloadURL: url,
-            storagePath,
-            size: file.size,
-            fileType: file.type,
-            uploadedBy: userId,
-            uploaderName: '',
-            createdAt: serverTimestamp(),
-          });
-          successCount++;
-        } catch (err: any) {
-          toast.error(err.message ?? `Failed to upload ${file.name}`);
-        }
-      }
-
-      setUploading(false);
-      setProgress(null);
-      if (successCount) {
-        toast.success(`${successCount} file${successCount > 1 ? 's' : ''} uploaded`);
-        onUploaded();
-      }
-    },
-    [folderId, userId, onUploaded]
-  );
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    disabled: uploading,
-    maxSize: 10 * 1024 * 1024,
-    accept: {
-      'image/*': [],
-      'application/pdf': [],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [],
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [],
-      'text/plain': [],
-      'text/markdown': [],
-      'application/zip': [],
-    },
-  });
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
 
   return (
-    <div
-      {...getRootProps()}
-      className={cn(
-        'border-2 border-dashed rounded-xl p-5 text-center transition-colors',
-        uploading
-          ? 'border-white/10 bg-white/3 cursor-default'
-          : isDragActive
-            ? 'border-[#F5C518] bg-[#F5C518]/5 cursor-copy'
-            : 'border-white/15 hover:border-[#F5C518]/40 hover:bg-white/3 cursor-pointer'
-      )}
-    >
-      <input {...getInputProps()} />
-      {uploading && progress ? (
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-full max-w-xs">
-            <div className="flex items-center justify-between text-xs text-white/40 mb-1.5">
-              <span className="truncate max-w-[200px]">{progress.name}</span>
-              <span className="flex-shrink-0 ml-2 tabular-nums">
-                {progress.total > 1 ? `${progress.current}/${progress.total} · ` : ''}{progress.pct}%
-              </span>
+    <div className="bg-white rounded-2xl border border-gray-100 p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+      {/* Top row */}
+      <div className="flex items-start justify-between">
+        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-bold tracking-wide ${bg} ${text}`}>
+          {ext}
+        </span>
+        <div ref={menuRef} className="relative">
+          <button
+            onClick={() => setMenuOpen(o => !o)}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <MoreVertical size={15} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-8 z-20 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[130px]">
+              <a
+                href={d.downloadURL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Download size={13} /> Download
+              </a>
+              <button
+                onClick={() => { setMenuOpen(false); onDelete(d.id!, d.storagePath ?? ''); }}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"
+              >
+                <Trash2 size={13} /> Delete
+              </button>
             </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#F5C518] rounded-full transition-all duration-150"
-                style={{ width: `${progress.pct}%` }}
-              />
-            </div>
-          </div>
-          <p className="text-xs text-white/30">
-            {progress.pct === 0 ? 'Starting upload…' : progress.pct < 100 ? 'Uploading…' : 'Saving…'}
-          </p>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="w-9 h-9 bg-white/8 rounded-xl flex items-center justify-center mb-1">
-            <Upload size={18} className={isDragActive ? 'text-[#F5C518]' : 'text-white/30'} />
+      </div>
+
+      {/* File name + meta */}
+      <div>
+        <p className="text-sm font-bold text-gray-900 line-clamp-2 leading-snug">{d.name}</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {formatFileSize(d.size ?? 0)} · updated {timeAgo(d.createdAt)}
+        </p>
+      </div>
+
+      {/* Uploader */}
+      {d.uploaderName && (
+        <div className="flex items-center gap-1.5 mt-auto">
+          <div className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
+            <span className="text-[8px] font-bold text-gray-500">
+              {d.uploaderName.charAt(0).toUpperCase()}
+            </span>
           </div>
-          <p className="text-sm font-semibold text-white/70">
-            {isDragActive ? 'Drop files here' : 'Drag & drop or click to upload'}
-          </p>
-          <p className="text-xs text-white/30">PDF, Word, Excel, images, ZIP · Max 10 MB</p>
+          <span className="text-xs text-gray-400 truncate">{d.uploaderName}</span>
         </div>
       )}
     </div>
   );
 }
 
-// ── Document row (admin themed) ───────────────────────────────────────────────
+// ── Upload Modal ──────────────────────────────────────────────────────────────
 
-function DocumentRow({
-  docItem,
-  onDelete,
+function UploadModal({
+  folderId,
+  userId,
+  onClose,
+  onUploaded,
 }: {
-  docItem: ShipmateDocument;
-  onDelete: (id: string, storagePath: string) => void;
+  folderId: string;
+  userId: string;
+  onClose: () => void;
+  onUploaded: () => void;
 }) {
-  const FileIcon = getFileIcon(docItem.fileType ?? '');
-  const ext = getFileExt(docItem.name, docItem.fileType ?? '');
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{ name: string; pct: number; current: number; total: number } | null>(null);
+
+  const onDrop = useCallback(async (accepted: File[], rejected: any[]) => {
+    if (rejected.length) {
+      toast.error(`${rejected[0].file.name}: ${rejected[0].errors?.[0]?.message ?? 'rejected'}`);
+    }
+    if (!accepted.length) return;
+    setUploading(true);
+    let ok = 0;
+    for (let i = 0; i < accepted.length; i++) {
+      const file = accepted[i];
+      try {
+        setProgress({ name: file.name, pct: 0, current: i + 1, total: accepted.length });
+        const { url, storagePath } = await storageService.uploadDocument(
+          folderId, file, userId, pct => setProgress(p => p ? { ...p, pct } : null)
+        );
+        await addDoc(collection(db, 'documents'), {
+          name: file.name,
+          originalName: file.name,
+          folder: folderId as DocumentFolder,
+          downloadURL: url,
+          storagePath,
+          size: file.size,
+          fileType: file.type,
+          uploadedBy: userId,
+          uploaderName: '',
+          createdAt: serverTimestamp(),
+        });
+        ok++;
+      } catch (e: any) {
+        toast.error(e.message ?? `Failed to upload ${file.name}`);
+      }
+    }
+    setUploading(false);
+    setProgress(null);
+    if (ok) { toast.success(`${ok} file${ok > 1 ? 's' : ''} uploaded`); onUploaded(); onClose(); }
+  }, [folderId, userId, onUploaded, onClose]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    disabled: uploading,
+    accept: {
+      'image/*': [],
+      'application/pdf': [],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': [],
+      'text/plain': [],
+      'text/csv': [],
+      'application/zip': [],
+      'application/json': [],
+    },
+  });
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/4 group transition-colors border-b border-white/6 last:border-0">
-      <div className="w-10 h-10 bg-white/8 rounded-xl flex flex-col items-center justify-center flex-shrink-0">
-        <FileIcon size={16} className="text-[#F5C518]/80" />
-        <span className="text-[8px] font-bold mt-0.5 leading-none text-[#F5C518]/60">{ext}</span>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white/85 truncate">{docItem.name}</p>
-        <p className="text-xs text-white/35">
-          {formatFileSize(docItem.size ?? 0)} · {formatDate(docItem.createdAt as any)}
-          {docItem.uploaderName && ` · ${docItem.uploaderName}`}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <a
-          href={docItem.downloadURL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/30 hover:text-[#F5C518] transition-colors"
-          title="Download"
-        >
-          <Download size={14} />
-        </a>
-        <button
-          onClick={() => onDelete(docItem.id!, docItem.storagePath ?? '')}
-          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-500/15 text-white/30 hover:text-red-400 transition-colors"
-          title="Delete"
-        >
-          <Trash2 size={14} />
-        </button>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900">Upload files</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div
+            {...getRootProps()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer',
+              isDragActive ? 'border-[#1B2B5E] bg-[#1B2B5E]/5' : 'border-gray-200 hover:border-[#1B2B5E]/50 hover:bg-gray-50',
+              uploading && 'cursor-default'
+            )}
+          >
+            <input {...getInputProps()} />
+            {uploading && progress ? (
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-sm font-medium text-gray-700 truncate max-w-xs">{progress.name}</p>
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#1B2B5E] rounded-full transition-all" style={{ width: `${progress.pct}%` }} />
+                </div>
+                <p className="text-xs text-gray-400">
+                  {progress.total > 1 ? `File ${progress.current} of ${progress.total} · ` : ''}{progress.pct}%
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-12 h-12 bg-[#1B2B5E]/8 rounded-2xl flex items-center justify-center mb-1">
+                  <Upload size={22} className="text-[#1B2B5E]" />
+                </div>
+                <p className="text-sm font-semibold text-gray-800">
+                  {isDragActive ? 'Drop files here' : 'Drag & drop or click to browse'}
+                </p>
+                <p className="text-xs text-gray-400">PDF, Word, Excel, Images, ZIP and more</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -228,25 +270,23 @@ function DocumentRow({
 export default function AdminDocumentsPage() {
   const { currentUser } = useAuth();
 
-  const [selectedFolder, setSelectedFolder] = useState<string>('general');
-  const [documents, setDocuments] = useState<ShipmateDocument[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [deptFolders, setDeptFolders] = useState<FolderConfig[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState<string>('all');
+  const [documents, setDocuments]           = useState<ShipmateDocument[]>([]);
+  const [loading, setLoading]               = useState(false);
+  const [search, setSearch]                 = useState('');
+  const [showUpload, setShowUpload]         = useState(false);
+  const [deptFolders, setDeptFolders]       = useState<FolderConfig[]>([]);
 
-  // IDs that are already handled by FIXED_FOLDERS — skip them in dynamic list
   const FIXED_IDS = new Set(FIXED_FOLDERS.map(f => f.id));
 
-  // Load departments from Firestore as dynamic folders
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'departments'), snap => {
       const folders: FolderConfig[] = snap.docs
-        .filter(d => !FIXED_IDS.has(d.id)) // avoid duplicate keys with fixed folders
+        .filter(d => !FIXED_IDS.has(d.id))
         .map(d => ({
           id: d.id,
           label: d.data().name as string,
-          description: `${d.data().name} team documents`,
-          icon: '🏢',
+          isDynamic: true,
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
       setDeptFolders(folders);
@@ -255,42 +295,38 @@ export default function AdminDocumentsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Merge: General first, then dynamic dept folders, then Finance / HR
-  const FOLDERS: FolderConfig[] = [
+  const allFolders: FolderConfig[] = [
+    { id: 'all', label: 'All' },
     FIXED_FOLDERS[0],
     ...deptFolders,
     ...FIXED_FOLDERS.slice(1),
   ];
 
   const loadDocuments = useCallback(async () => {
-    if (!selectedFolder) return;
     setLoading(true);
     try {
-      // No orderBy — avoids composite index requirement. Sort client-side.
-      const q = query(
-        collection(db, 'documents'),
-        where('folder', '==', selectedFolder),
-      );
-      const snap = await getDocs(q);
+      let snap;
+      if (selectedFolder === 'all') {
+        snap = await getDocs(collection(db, 'documents'));
+      } else {
+        snap = await getDocs(query(collection(db, 'documents'), where('folder', '==', selectedFolder)));
+      }
       const docs = snap.docs
         .map(d => ({ id: d.id, ...d.data() } as ShipmateDocument))
         .sort((a, b) => {
           const ta = (a.createdAt as any)?.toMillis?.() ?? 0;
           const tb = (b.createdAt as any)?.toMillis?.() ?? 0;
-          return tb - ta; // newest first
+          return tb - ta;
         });
       setDocuments(docs);
-    } catch (err: any) {
-      console.error('[AdminDocuments] loadDocuments error:', err);
-      toast.error('Failed to load documents' + (err?.message ? `: ${err.message}` : ''));
+    } catch {
+      toast.error('Failed to load documents');
     } finally {
       setLoading(false);
     }
   }, [selectedFolder]);
 
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+  useEffect(() => { loadDocuments(); }, [loadDocuments]);
 
   async function handleDelete(docId: string, storagePath: string) {
     if (!confirm('Delete this file? This cannot be undone.')) return;
@@ -308,121 +344,107 @@ export default function AdminDocumentsPage() {
     !search || d.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const currentFolder = FOLDERS.find(f => f.id === selectedFolder);
-
   return (
-    <div className="flex h-full overflow-hidden bg-gray-950">
+    <div className="flex h-full overflow-hidden bg-gray-50">
 
-      {/* Folder sidebar */}
-      <div className="w-52 flex-shrink-0 border-r border-white/8 bg-gray-900/50 p-3 flex flex-col gap-1">
-        <p className="text-[10px] font-bold text-white/25 uppercase tracking-widest px-2 mb-2">
-          Folders
-        </p>
-        {FOLDERS.map(folder => {
-          const isActive = selectedFolder === folder.id;
-          return (
+      {/* ── Left sidebar ───────────────────────────────────────── */}
+      <div className="w-56 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col pt-6 pb-4">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-5 mb-3">Folders</p>
+        <div className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto">
+          {allFolders.map(f => (
             <button
-              key={folder.id}
-              onClick={() => setSelectedFolder(folder.id)}
+              key={f.id}
+              onClick={() => setSelectedFolder(f.id)}
               className={cn(
-                'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left',
-                isActive
-                  ? 'bg-[#F5C518]/12 text-[#F5C518]'
-                  : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all text-left w-full',
+                selectedFolder === f.id
+                  ? 'bg-[#1B2B5E] text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
               )}
             >
-              {isActive && <div className="absolute left-0 w-1 h-5 bg-[#F5C518] rounded-r-full" />}
-              <span className="text-base">{folder.icon}</span>
-              <span className="truncate">{folder.label}</span>
+              <Folder size={14} className="flex-shrink-0 opacity-70" />
+              <span className="truncate">{f.label}</span>
+              {f.restricted && <span className="ml-auto text-[9px] opacity-50">🔒</span>}
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-      {/* Main content */}
+      {/* ── Main area ──────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
 
-          {/* Header */}
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{currentFolder?.icon}</span>
-            <div>
-              <h1 className="text-lg font-bold text-white">{currentFolder?.label}</h1>
-              <p className="text-xs text-white/35">{currentFolder?.description}</p>
-            </div>
+        {/* Header */}
+        <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h1 className="text-xl font-black text-gray-900">Documents</h1>
+            <p className="text-xs text-gray-400 mt-0.5">Secure storage · permission-based access · file versioning</p>
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowUpload(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#1B2B5E] text-white rounded-xl text-sm font-bold hover:bg-[#2D4080] transition-colors"
+            >
+              <Plus size={15} /> Upload
+            </button>
+          </div>
+        </div>
 
-          {/* Upload zone */}
-          {currentUser && (
-            <UploadZone
-              folderId={selectedFolder}
-              onUploaded={loadDocuments}
-              userId={currentUser.uid}
+        {/* Search */}
+        <div className="px-6 py-3 flex-shrink-0">
+          <div className="relative max-w-sm">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search files…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E]"
             />
-          )}
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
 
-          {/* Search */}
-          {documents.length > 0 && (
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-              <input
-                type="text"
-                placeholder="Search files…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-4 py-2 bg-white/6 border border-white/10 rounded-xl text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#F5C518]/20 focus:border-[#F5C518]/40"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* File list */}
+        {/* Document grid */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
           {loading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="flex items-center gap-3 p-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/8 animate-pulse" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3 w-48 rounded bg-white/8 animate-pulse" />
-                    <div className="h-2.5 w-24 rounded bg-white/6 animate-pulse" />
-                  </div>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1,2,3,4,5,6].map(i => (
+                <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 h-32 shimmer" />
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-              <div className="w-14 h-14 bg-white/6 rounded-2xl flex items-center justify-center">
-                <FolderOpen size={24} className="text-white/25" />
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mb-3">
+                <Folder size={24} className="text-gray-300" />
               </div>
-              <p className="text-sm font-semibold text-white/50">
-                {search ? 'No files match' : 'No files yet'}
+              <p className="text-sm font-semibold text-gray-500">{search ? 'No files match' : 'No files yet'}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {search ? 'Try a different search term.' : 'Click Upload to add files.'}
               </p>
-              <p className="text-xs text-white/25">
-                {search ? 'Try a different search term.' : 'Upload files using the area above.'}
-              </p>
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="text-xs text-[#F5C518]/70 hover:text-[#F5C518] font-medium"
-                >
-                  Clear search
-                </button>
-              )}
             </div>
           ) : (
-            <div className="bg-white/4 rounded-2xl border border-white/8 overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map(d => (
-                <DocumentRow key={d.id} docItem={d} onDelete={handleDelete} />
+                <DocumentCard key={d.id} doc={d} onDelete={handleDelete} />
               ))}
             </div>
           )}
-
         </div>
       </div>
+
+      {/* Upload modal */}
+      {showUpload && currentUser && (
+        <UploadModal
+          folderId={selectedFolder === 'all' ? 'general' : selectedFolder}
+          userId={currentUser.uid}
+          onClose={() => setShowUpload(false)}
+          onUploaded={loadDocuments}
+        />
+      )}
     </div>
   );
 }

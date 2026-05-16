@@ -70,6 +70,7 @@ export default function AttendancePage() {
   const [liveTime, setLiveTime]     = useState(nowHHMM());
   const [onApprovedLeave, setOnApprovedLeave] = useState(false);
   const [leaveName, setLeaveName]   = useState<string>('');
+  const [showPunchOutConfirm, setShowPunchOutConfirm] = useState(false);
 
   const today = todayISO();
   const todayRec     = records[today] ?? null;
@@ -295,7 +296,7 @@ export default function AttendancePage() {
             </button>
           ) : !isPunchedOut ? (
             <button
-              onClick={handlePunchOut} disabled={saving}
+              onClick={() => setShowPunchOutConfirm(true)} disabled={saving}
               className="w-full py-4 rounded-2xl bg-red-500 text-white font-black text-base hover:bg-red-600 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2.5 shadow-lg shadow-red-500/20"
             >
               {saving ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
@@ -393,6 +394,51 @@ export default function AttendancePage() {
           </div>
         </div>
       </div>
+
+      {/* ── Punch Out Confirmation Modal ──────────────────────────────────────── */}
+      {showPunchOutConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+            {/* Top accent */}
+            <div className="h-1.5 bg-gradient-to-r from-red-400 to-red-600" />
+
+            <div className="p-6">
+              {/* Icon */}
+              <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <LogOut size={26} className="text-red-500" />
+              </div>
+
+              {/* Text */}
+              <h3 className="text-lg font-black text-gray-900 text-center">Punch Out?</h3>
+              <p className="text-sm text-gray-500 text-center mt-1.5 leading-snug">
+                You're punching out at <span className="font-bold text-gray-800">{liveTime}</span>.
+                {todayRec?.punchIn && (
+                  <> You've been in since <span className="font-bold text-gray-800">{todayRec.punchIn}</span>.</>
+                )}
+              </p>
+              <p className="text-xs text-gray-400 text-center mt-1">This action cannot be undone.</p>
+
+              {/* Buttons */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowPunchOutConfirm(false)}
+                  className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { setShowPunchOutConfirm(false); handlePunchOut(); }}
+                  disabled={saving}
+                  className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-black active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-md shadow-red-500/20"
+                >
+                  {saving ? <Loader2 size={15} className="animate-spin" /> : <LogOut size={15} />}
+                  Yes, Punch Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

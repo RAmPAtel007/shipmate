@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { DesktopSidebar } from './DesktopSidebar';
 import { MobileNav } from './MobileNav';
 import { useUnreadCounts } from '@/hooks/useUnreadCounts';
+import { useUnreadAnnouncements } from '@/hooks/useUnreadAnnouncements';
 import { useAuth } from '@/contexts/AuthContext';
 import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -18,7 +19,8 @@ interface NotifItem {
   id: string;
   title: string;
   body: string;
-  createdAt: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createdAt: any; // Firebase Timestamp — typed as any to avoid importing the SDK type
   type: 'announcement' | 'leave';
 }
 
@@ -111,7 +113,7 @@ function NotificationBell({ currentUser }: { currentUser: ShipmateUser }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1rem))] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">
             <div className="flex items-center gap-2">
@@ -301,6 +303,7 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
   const pathname = usePathname();
   const activeTab = pathname.split('/')[1] || 'home';
   const { total: unreadCount } = useUnreadCounts();
+  const unreadAnnouncements = useUnreadAnnouncements();
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [notifBannerDismissed, setNotifBannerDismissed] = useState(false);
 
@@ -314,7 +317,12 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
 
       {/* ── Desktop sidebar (md+) ────────────────────────────────── */}
       <div className="hidden md:flex md:flex-shrink-0">
-        <DesktopSidebar currentUser={currentUser} activeTab={activeTab} />
+        <DesktopSidebar
+          currentUser={currentUser}
+          activeTab={activeTab}
+          unreadCount={unreadCount}
+          unreadAnnouncements={unreadAnnouncements}
+        />
       </div>
 
       {/* ── Main content ─────────────────────────────────────────── */}
@@ -324,11 +332,13 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
         <header className="md:hidden flex-shrink-0 bg-[#1B2B5E] flex items-center justify-between px-4 py-3 pt-safe">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
-            {/* Icon badge */}
-            <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 shadow-inner">
-              <span className="text-[#F5C518] font-black text-sm leading-none tracking-tighter">S</span>
-            </div>
-            {/* Wordmark */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://www.shipcube.com/img/logo.svg"
+              alt="Shipcube"
+              className="h-5 brightness-0 invert opacity-90 flex-shrink-0"
+            />
+            <div className="w-px h-4 bg-white/20 flex-shrink-0" />
             <div className="flex flex-col">
               <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipmate</span>
               <span className="text-[#F5C518]/60 text-[8px] font-semibold tracking-[0.08em] uppercase mt-0.5">
@@ -378,7 +388,12 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
 
         {/* Mobile bottom nav */}
         <div className="md:hidden flex-shrink-0">
-          <MobileNav currentUser={currentUser} activeTab={activeTab} unreadCount={unreadCount} />
+          <MobileNav
+            currentUser={currentUser}
+            activeTab={activeTab}
+            unreadCount={unreadCount}
+            unreadAnnouncements={unreadAnnouncements}
+          />
         </div>
 
       </div>

@@ -153,13 +153,13 @@ const MessageBubble = memo(function MessageBubble({
   onReact: (id: string, emoji: string, reactions: ReactionMap) => void;
   onDelete: (id: string) => void;
 }) {
-  const [showPicker, setShowPicker] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [fullText, setFullText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isOwn = message.senderId === currentUserId;
   const isCode = message.messageType === 'code' || looksLikeCode(message.text);
-  // Live photo always takes precedence over the photo baked into the message at send time
   const livePhoto = photoMap?.has(message.senderId)
     ? photoMap.get(message.senderId)
     : message.senderPhotoURL;
@@ -167,7 +167,22 @@ const MessageBubble = memo(function MessageBubble({
   async function copyText() {
     await navigator.clipboard.writeText(fullText ?? message.text);
     setCopied(true);
+    setMobileMenu(false);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function handleTouchStart() {
+    longPressTimer.current = setTimeout(() => {
+      setMobileMenu(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    }, 480);
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   }
 
   if (message.isDeleted) {
@@ -184,31 +199,32 @@ const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div className={`relative group flex gap-3 px-4 py-0.5 hover:bg-[#F8F8F8] transition-colors ${isFirst ? 'pt-3' : ''}`}>
-      {/* Hover action toolbar */}
-      <div className="absolute right-3 -top-3.5 hidden group-hover:flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg shadow-md px-1 py-1 z-20">
-        <div className="relative">
+    <div
+      className={`relative group flex gap-3 px-4 py-0.5 hover:bg-white transition-colors ${isFirst ? 'pt-3' : ''}`}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={cancelLongPress}
+      onTouchMove={cancelLongPress}
+    >
+      {/* ── Desktop hover toolbar (emoji pills + delete) ── */}
+      <div className="absolute right-3 -top-4 hidden group-hover:flex items-center gap-0.5 bg-white border border-gray-200 rounded-xl shadow-md px-1.5 py-1 z-20">
+        {QUICK_EMOJIS.map(e => (
           <button
-            onClick={() => setShowPicker(p => !p)}
-            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-            title="Add reaction"
+            key={e}
+            onClick={() => onReact(message.id, e, (message.reactions ?? {}) as ReactionMap)}
+            className="text-[15px] leading-none p-1 rounded-lg hover:bg-gray-100 hover:scale-125 transition-all"
+            title={e}
           >
-            <Smile size={14} />
+            {e}
           </button>
-          {showPicker && (
-            <EmojiPicker
-              onSelect={e => onReact(message.id, e, (message.reactions ?? {}) as ReactionMap)}
-              onClose={() => setShowPicker(false)}
-            />
-          )}
-        </div>
+        ))}
+        <div className="w-px h-4 bg-gray-200 mx-0.5" />
         {isOwn && (
           <button
             onClick={() => onDelete(message.id)}
-            className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-            title="Delete message"
+            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+            title="Delete"
           >
-            <Trash2 size={14} />
+            <Trash2 size={13} />
           </button>
         )}
       </div>
@@ -338,6 +354,75 @@ const MessageBubble = memo(function MessageBubble({
           </div>
         )}
       </div>
+
+      {/* ── Mobile long-press context menu ── */}
+      {mobileMenu && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-end md:hidden"
+          onClick={() => setMobileMenu(false)}
+        >
+          <div
+            className="w-full bg-white rounded-t-2xl shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+
+            {/* Message preview */}
+            {!message.isDeleted && message.text && (
+              <div className="mx-4 mb-3 px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+                <p className="text-[11px] font-semibold text-gray-400 mb-0.5">{message.senderName}</p>
+                <p className="text-sm text-gray-700 line-clamp-2 leading-snug">{message.text}</p>
+              </div>
+            )}
+
+            {/* Quick emoji row */}
+            <div className="px-5 py-3 border-t border-gray-100">
+              <div className="flex justify-around">
+                {QUICK_EMOJIS.map(e => (
+                  <button
+                    key={e}
+                    onClick={() => {
+                      onReact(message.id, e, (message.reactions ?? {}) as ReactionMap);
+                      setMobileMenu(false);
+                    }}
+                    className="text-2xl p-1.5 rounded-xl active:bg-gray-100 active:scale-90 transition-all"
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="px-3 py-2 space-y-0.5 border-t border-gray-100">
+              <button
+                onClick={copyText}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left hover:bg-gray-50 active:bg-gray-100 transition-colors"
+              >
+                <Copy size={17} className="text-gray-500 flex-shrink-0" />
+                <span className="text-sm font-semibold text-gray-700">
+                  {copied ? 'Copied!' : 'Copy Text'}
+                </span>
+              </button>
+              {isOwn && (
+                <button
+                  onClick={() => { onDelete(message.id); setMobileMenu(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left hover:bg-red-50 active:bg-red-100 transition-colors"
+                >
+                  <Trash2 size={17} className="text-red-500 flex-shrink-0" />
+                  <span className="text-sm font-semibold text-red-500">Delete Message</span>
+                </button>
+              )}
+            </div>
+
+            {/* Safe area spacer */}
+            <div className="h-6" />
+          </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -671,12 +756,12 @@ const ChannelItem = memo(function ChannelItem({
   return (
     <button
       onClick={onSelect}
-      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm transition-all text-left ${
+      className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all text-left ${
         isActive
-          ? 'bg-white/20 text-white'
+          ? 'bg-[#1B2B5E] text-white font-semibold'
           : unread
-            ? 'text-white hover:bg-white/10'
-            : 'text-[#bcc4d4] hover:bg-white/10 hover:text-white'
+            ? 'text-gray-900 font-bold hover:bg-gray-50'
+            : 'text-gray-500 font-medium hover:bg-gray-50 hover:text-gray-800'
       }`}
     >
       {isDM ? (
@@ -685,7 +770,7 @@ const ChannelItem = memo(function ChannelItem({
           : (
             <div
               className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${
-                isActive ? 'bg-white/30 text-white' : 'bg-white/15 text-white/80'
+                isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
               }`}
             >
               {getDMInitials(channel, currentUserId, userMap)}
@@ -694,7 +779,7 @@ const ChannelItem = memo(function ChannelItem({
       ) : (
         <Hash
           size={14}
-          className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-[#8d9cb8]'}`}
+          className={`flex-shrink-0 ${isActive ? 'text-white/80' : 'text-gray-400'}`}
         />
       )}
       <span className={`flex-1 truncate ${unread && !isActive ? 'font-bold' : 'font-medium'}`}>
@@ -731,17 +816,22 @@ function Sidebar({
   const dms = channels.filter(c => c.type === 'dm');
 
   return (
-    <div className="w-52 bg-[#1B2B5E] border-r border-white/10 flex flex-col h-full flex-shrink-0">
+    <div className="w-full md:w-56 bg-white border-r border-gray-100 flex flex-col h-full flex-shrink-0">
+
+      {/* Sidebar header */}
+      <div className="px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Channels & DMs</p>
+      </div>
 
       {/* Channel sections */}
       <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
         {publicChannels.length > 0 && (
           <section>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-[10px] font-bold text-[#8d9cb8] uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                 Channels
               </span>
-              <button className="text-[#8d9cb8] hover:text-white transition-colors" title="Add channel">
+              <button className="text-gray-400 hover:text-gray-600 transition-colors" title="Add channel">
                 <Plus size={13} />
               </button>
             </div>
@@ -765,7 +855,7 @@ function Sidebar({
         {deptChannels.length > 0 && (
           <section>
             <div className="px-2 mb-1">
-              <span className="text-[10px] font-bold text-[#8d9cb8] uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                 Department
               </span>
             </div>
@@ -789,10 +879,10 @@ function Sidebar({
         {dms.length > 0 && (
           <section>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-[10px] font-bold text-[#8d9cb8] uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                 Direct Messages
               </span>
-              <button className="text-[#8d9cb8] hover:text-white transition-colors" title="New DM">
+              <button className="text-gray-400 hover:text-gray-600 transition-colors" title="New DM">
                 <Plus size={13} />
               </button>
             </div>
@@ -814,7 +904,7 @@ function Sidebar({
         )}
 
         {channels.length === 0 && (
-          <p className="text-xs text-[#8d9cb8] px-3 py-6 text-center">Loading channels…</p>
+          <p className="text-xs text-gray-400 px-3 py-6 text-center">Loading channels…</p>
         )}
       </div>
     </div>
@@ -883,9 +973,9 @@ function Conversation({
   const groups = buildGroups(messages);
 
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0 bg-white">
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-gray-50">
       {/* Channel header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 flex-shrink-0">
+      <div className="flex items-center gap-3 px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
         {onBack && (
           <button onClick={onBack} className="text-gray-500 hover:text-gray-700 md:hidden">
             <ArrowLeft size={18} />

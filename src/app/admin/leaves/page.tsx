@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Search, X, CheckCircle2, XCircle, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import { collection, getDocs, query, orderBy, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -367,6 +367,157 @@ function PoliciesTab() {
   );
 }
 
+// ─── Approval Queue (module-level — must NOT be inside AdminLeavesPage) ────────
+
+interface ApprovalQueueProps {
+  pending: LeaveRequest[];
+  actionMode: ActionMode;
+  actioning: string | null;
+  comment: string;
+  commentRef: React.RefObject<HTMLTextAreaElement>;
+  forceLTR: () => void;
+  setActionMode: (m: ActionMode) => void;
+  setComment: (v: string) => void;
+  onApprove: (leave: LeaveRequest) => void;
+  onReject: (leave: LeaveRequest) => void;
+}
+
+function ApprovalQueue({
+  pending, actionMode, actioning, comment, commentRef, forceLTR,
+  setActionMode, setComment, onApprove, onReject,
+}: ApprovalQueueProps) {
+  if (pending.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 py-16 text-center">
+        <CheckCircle2 size={32} className="text-emerald-300 mx-auto mb-3"/>
+        <p className="text-sm font-semibold text-gray-500">No pending leave requests 🎉</p>
+        <p className="text-xs text-gray-400 mt-1">All caught up!</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {pending.map(leave => (
+        <div key={leave.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center text-sm font-bold text-[#1B2B5E] flex-shrink-0">
+                {leave.employeeName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-gray-900">{leave.employeeName}</p>
+                      <span className="text-[11px] bg-gray-100 text-gray-500 font-semibold px-2 py-0.5 rounded-full">{leave.departmentId}</span>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-0.5">
+                      <span className="font-semibold capitalize">{getLeaveTypeLabel(leave.type)}</span>
+                      {' · '}
+                      {formatDate(leave.startDate)}
+                      {leave.endDate !== leave.startDate && ` → ${formatDate(leave.endDate)}`}
+                      {' '}
+                      <span className="text-gray-400">({leave.durationDays}d)</span>
+                    </p>
+                    {leave.reason && (
+                      <p className="text-xs text-gray-500 mt-1 italic">{leave.reason}</p>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full flex-shrink-0">
+                    Pending
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => { setActionMode({ type: 'reject', leaveId: leave.id }); setComment(''); }}
+                disabled={!!actioning}
+                className="flex items-center gap-1.5 px-3.5 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                <XCircle size={13}/>Decline
+              </button>
+              <button
+                onClick={() => { setActionMode(null); setComment(''); }}
+                disabled={!!actioning}
+                className="flex items-center gap-1.5 px-3.5 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                Request more info
+              </button>
+              <button
+                onClick={() => { setActionMode({ type: 'approve', leaveId: leave.id }); setComment(''); }}
+                disabled={!!actioning}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-[#1B2B5E] text-white hover:bg-[#2D4080] rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                <CheckCircle2 size={13}/>Approve
+              </button>
+            </div>
+          </div>
+
+          {/* Inline action panel */}
+          {actionMode?.leaveId === leave.id && (
+            <div className={`px-5 py-4 border-t ${
+              actionMode.type === 'approve' ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-gray-600 mb-1.5">
+                    {actionMode.type === 'approve'
+                      ? '✅ Add a message for the employee (optional)'
+                      : '❌ Rejection reason — employee will see this (required)'}
+                  </p>
+                  <textarea
+                    ref={commentRef}
+                    rows={2}
+                    dir="ltr"
+                    lang="en"
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    style={{ direction: 'ltr', unicodeBidi: 'embed', textAlign: 'left', writingMode: 'horizontal-tb' }}
+                    placeholder={actionMode.type === 'approve'
+                      ? 'e.g. Approved! Enjoy your time off. 🌴'
+                      : 'e.g. We need full team coverage on those dates.'}
+                    value={comment}
+                    onChange={e => setComment(e.target.value)}
+                    onFocus={forceLTR}
+                    className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none resize-none text-left ${
+                      actionMode.type === 'approve'
+                        ? 'border-emerald-200 focus:border-emerald-400 bg-white'
+                        : 'border-red-200 focus:border-red-400 bg-white'
+                    }`}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 flex-shrink-0 pt-5">
+                  <button
+                    onClick={() => actionMode.type === 'approve' ? onApprove(leave) : onReject(leave)}
+                    disabled={actioning === leave.id || (actionMode.type === 'reject' && !comment.trim())}
+                    className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 ${
+                      actionMode.type === 'approve'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
+                    }`}
+                  >
+                    {actioning === leave.id ? 'Saving…' : actionMode.type === 'approve' ? 'Confirm Approve' : 'Confirm Reject'}
+                  </button>
+                  <button
+                    onClick={() => { setActionMode(null); setComment(''); }}
+                    className="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminLeavesPage() {
@@ -379,6 +530,27 @@ export default function AdminLeavesPage() {
   const [actioning,    setActioning]    = useState<string | null>(null);
   const [actionMode,   setActionMode]   = useState<ActionMode>(null);
   const [comment,      setComment]      = useState('');
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+
+  const forceLTR = useCallback(() => {
+    const el = commentRef.current;
+    if (!el) return;
+    el.setAttribute('dir', 'ltr');
+    el.style.setProperty('direction', 'ltr', 'important');
+    el.style.setProperty('text-align', 'left', 'important');
+    el.style.setProperty('unicode-bidi', 'embed', 'important');
+    el.style.setProperty('writing-mode', 'horizontal-tb', 'important');
+  }, []);
+
+  useEffect(() => {
+    if (!actionMode) return;
+    // Small delay to ensure textarea is rendered before focusing
+    const t = setTimeout(() => {
+      forceLTR();
+      commentRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [actionMode, forceLTR]);
 
   async function load() {
     setLoading(true);
@@ -428,139 +600,6 @@ export default function AdminLeavesPage() {
     { id: 'calendar', label: 'Team calendar'  },
     { id: 'policies', label: 'Policies & balances' },
   ];
-
-  // ── Approval Queue card (pending only) ──────────────────────────────────────
-  function ApprovalQueue() {
-    if (pending.length === 0) {
-      return (
-        <div className="bg-white rounded-2xl border border-gray-100 py-16 text-center">
-          <CheckCircle2 size={32} className="text-emerald-300 mx-auto mb-3"/>
-          <p className="text-sm font-semibold text-gray-500">No pending leave requests 🎉</p>
-          <p className="text-xs text-gray-400 mt-1">All caught up!</p>
-        </div>
-      );
-    }
-    return (
-      <div className="space-y-3">
-        {pending.map(leave => (
-          <div key={leave.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="p-5">
-              <div className="flex items-start gap-3">
-                {/* Avatar */}
-                <div className="w-11 h-11 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center text-sm font-bold text-[#1B2B5E] flex-shrink-0">
-                  {leave.employeeName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-bold text-gray-900">{leave.employeeName}</p>
-                        <span className="text-[11px] bg-gray-100 text-gray-500 font-semibold px-2 py-0.5 rounded-full">{leave.departmentId}</span>
-                      </div>
-                      <p className="text-sm text-gray-700 mt-0.5">
-                        <span className="font-semibold capitalize">{getLeaveTypeLabel(leave.type)}</span>
-                        {' · '}
-                        {formatDate(leave.startDate)}
-                        {leave.endDate !== leave.startDate && ` → ${formatDate(leave.endDate)}`}
-                        {' '}
-                        <span className="text-gray-400">({leave.durationDays}d)</span>
-                      </p>
-                      {leave.reason && (
-                        <p className="text-xs text-gray-500 mt-1 italic">{leave.reason}</p>
-                      )}
-                    </div>
-                    <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full flex-shrink-0">
-                      Pending
-                    </span>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-end gap-2 mt-4">
-                <button
-                  onClick={() => { setActionMode({ type: 'reject', leaveId: leave.id }); setComment(''); }}
-                  disabled={!!actioning}
-                  className="flex items-center gap-1.5 px-3.5 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
-                >
-                  <XCircle size={13}/>Decline
-                </button>
-                <button
-                  onClick={() => { setActionMode(null); setComment(''); /* request more info placeholder */ }}
-                  disabled={!!actioning}
-                  className="flex items-center gap-1.5 px-3.5 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
-                >
-                  Request more info
-                </button>
-                <button
-                  onClick={() => { setActionMode({ type: 'approve', leaveId: leave.id }); setComment(''); }}
-                  disabled={!!actioning}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-[#1B2B5E] text-white hover:bg-[#2D4080] rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
-                >
-                  <CheckCircle2 size={13}/>Approve
-                </button>
-              </div>
-            </div>
-
-            {/* Inline action panel */}
-            {actionMode?.leaveId === leave.id && (
-              <div className={`px-5 py-4 border-t ${
-                actionMode.type === 'approve'
-                  ? 'bg-emerald-50 border-emerald-100'
-                  : 'bg-red-50 border-red-100'
-              }`}>
-                <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-gray-600 mb-1.5">
-                      {actionMode.type === 'approve'
-                        ? '✅ Add a message for the employee (optional)'
-                        : '❌ Rejection reason — employee will see this (required)'}
-                    </p>
-                    <textarea
-                      rows={2}
-                      dir="ltr"
-                      style={{ direction: 'ltr', unicodeBidi: 'embed', textAlign: 'left' }}
-                      placeholder={actionMode.type === 'approve'
-                        ? 'e.g. Approved! Enjoy your time off. 🌴'
-                        : 'e.g. We need full team coverage on those dates.'}
-                      value={comment} autoFocus onChange={e => setComment(e.target.value)}
-                      className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none resize-none text-left ${
-                        actionMode.type === 'approve'
-                          ? 'border-emerald-200 focus:border-emerald-400 bg-white'
-                          : 'border-red-200 focus:border-red-400 bg-white'
-                      }`}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 flex-shrink-0 pt-5">
-                    <button
-                      onClick={() => actionMode.type === 'approve' ? approve(leave) : reject(leave)}
-                      disabled={actioning === leave.id || (actionMode.type === 'reject' && !comment.trim())}
-                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 ${
-                        actionMode.type === 'approve'
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-red-600 hover:bg-red-700 text-white'
-                      }`}
-                    >
-                      {actioning === leave.id ? 'Saving…' : actionMode.type === 'approve' ? 'Confirm Approve' : 'Confirm Reject'}
-                    </button>
-                    <button
-                      onClick={() => { setActionMode(null); setComment(''); }}
-                      className="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   // ── All Requests table ───────────────────────────────────────────────────────
   function AllRequests() {
@@ -727,7 +766,20 @@ export default function AdminLeavesPage() {
       </div>
 
       {/* ── Tab content ── */}
-      {activeTab === 'queue'    && <ApprovalQueue/>}
+      {activeTab === 'queue'    && (
+        <ApprovalQueue
+          pending={pending}
+          actionMode={actionMode}
+          actioning={actioning}
+          comment={comment}
+          commentRef={commentRef}
+          forceLTR={forceLTR}
+          setActionMode={setActionMode}
+          setComment={setComment}
+          onApprove={approve}
+          onReject={reject}
+        />
+      )}
       {activeTab === 'all'      && <AllRequests/>}
       {activeTab === 'calendar' && <TeamCalendar/>}
       {activeTab === 'policies' && <PoliciesTab/>}

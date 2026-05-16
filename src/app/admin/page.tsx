@@ -346,20 +346,20 @@ export default function AdminDashboard() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="max-w-screen-xl mx-auto px-6 py-6 space-y-5">
+      <div className="max-w-screen-xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-4 md:space-y-5">
 
         {/* ── Page header ───────────────────────────────────────────────── */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm text-gray-400 mb-0.5">{dateHeader}</p>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-tight">People desk</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-gray-400 mb-0.5 hidden sm:block">{dateHeader}</p>
+            <h1 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight leading-tight">People desk</h1>
             <p className="text-sm text-gray-500 mt-1">
               {loading
-                ? <span className="inline-block w-48 h-4 rounded bg-gray-200 animate-pulse" />
+                ? <span className="inline-block w-40 h-4 rounded bg-gray-200 animate-pulse" />
                 : <>
-                    {activeCount} employees across {deptMap.size} departments
+                    {activeCount} employees
                     {actionsWaiting > 0 && (
-                      <> · <span className="text-[#1B2B5E] font-semibold">{actionsWaiting} action{actionsWaiting !== 1 ? 's' : ''} waiting on you.</span></>
+                      <> · <span className="text-[#1B2B5E] font-semibold">{actionsWaiting} waiting</span></>
                     )}
                   </>
               }
@@ -368,16 +368,12 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
             <button
               onClick={exportCSV}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+              title="Export CSV"
             >
-              <Download size={14} /> Export
+              <Download size={14} />
+              <span className="hidden sm:inline">Export</span>
             </button>
-            <Link
-              href="/admin/employees"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1B2B5E] text-white text-sm font-semibold hover:bg-[#243872] transition-colors shadow-sm"
-            >
-              <Plus size={14} /> Add employee
-            </Link>
           </div>
         </div>
 

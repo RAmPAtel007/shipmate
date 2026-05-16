@@ -1340,14 +1340,16 @@ export default function AdminUsersPage() {
       <div className={`flex flex-col flex-1 min-w-0 overflow-hidden transition-all ${selectedUser ? 'md:mr-0' : ''}`}>
 
         {/* Header */}
-        <div className="bg-white border-b border-gray-100 px-6 py-5 flex-shrink-0">
+        <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-4 md:py-5 flex-shrink-0">
           <div className="flex items-center justify-between mb-1">
-            <h1 className="text-2xl font-black text-gray-900">Employees</h1>
+            <h1 className="text-xl md:text-2xl font-black text-gray-900">Employees</h1>
             <button
               onClick={() => { /* Future: Add employee modal */ toast('Invite via Firebase Authentication → create user there first, then their profile will sync here.', { icon: 'ℹ️' }); }}
-              className="flex items-center gap-2 bg-[#1B2B5E] text-white text-sm font-bold px-4 py-2.5 rounded-xl hover:bg-[#2D4080] transition-colors"
+              className="flex items-center gap-2 bg-[#1B2B5E] text-white text-sm font-bold px-3 md:px-4 py-2 md:py-2.5 rounded-xl hover:bg-[#2D4080] transition-colors"
             >
-              <Plus size={14}/>Add employee
+              <Plus size={14}/>
+              <span className="hidden sm:inline">Add employee</span>
+              <span className="sm:hidden">Add</span>
             </button>
           </div>
           <p className="text-sm text-gray-400">
@@ -1358,8 +1360,8 @@ export default function AdminUsersPage() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white border-b border-gray-100 px-6 flex-shrink-0">
-          <div className="flex gap-6">
+        <div className="bg-white border-b border-gray-100 px-4 md:px-6 flex-shrink-0">
+          <div className="flex gap-4 md:gap-6">
             {(['employees', 'departments', 'warehouses'] as const).map(t => (
               <button key={t} onClick={() => { setTab(t); setSelectedUser(null); }}
                 className={`py-3 text-sm font-bold border-b-2 capitalize transition-all ${
@@ -1371,7 +1373,7 @@ export default function AdminUsersPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
 
           {/* ── Employees tab ── */}
           {tab === 'employees' && (

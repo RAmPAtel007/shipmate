@@ -5,15 +5,18 @@ import { useRouter } from 'next/navigation';
 import {
   Eye, EyeOff, Shield, ChevronDown,
   MessageSquare, Calendar, Bell, FolderOpen, Users,
+  Clock, DollarSign,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const FEATURES = [
-  { icon: MessageSquare, label: 'Team Chat',          desc: 'Real-time messaging & direct messages' },
-  { icon: Calendar,      label: 'Leave Management',   desc: 'Apply, track & approve leave requests' },
-  { icon: Bell,          label: 'Announcements',      desc: 'Company-wide broadcasts instantly' },
-  { icon: FolderOpen,    label: 'Documents',          desc: 'Shared file storage for every team' },
-  { icon: Users,         label: 'People Directory',   desc: 'Your entire team in one place' },
+  { icon: MessageSquare, label: 'Team Chat',          desc: 'Real-time messaging & channels' },
+  { icon: Clock,         label: 'Attendance',         desc: 'Punch in/out & live tracking' },
+  { icon: Calendar,      label: 'Leave Management',   desc: 'Apply, track & approve requests' },
+  { icon: DollarSign,    label: 'Payroll & Payslips', desc: 'Payroll history & digital payslips' },
+  { icon: Bell,          label: 'Announcements',      desc: 'Push notifications company-wide' },
+  { icon: FolderOpen,    label: 'Documents',          desc: 'Secure shared file storage' },
+  { icon: Users,         label: 'People Directory',   desc: 'Your whole team in one place' },
 ];
 
 export default function LoginPage() {
@@ -114,11 +117,11 @@ export default function LoginPage() {
             </p>
 
             {/* Feature list */}
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
               {FEATURES.map(({ icon: Icon, label, desc }) => (
-                <div key={label} className="flex items-center gap-3.5 group">
-                  <div className="w-9 h-9 bg-white/6 border border-white/8 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-[#F5C518]/12 group-hover:border-[#F5C518]/20 transition-colors">
-                    <Icon size={15} className="text-[#F5C518]/80 group-hover:text-[#F5C518] transition-colors" />
+                <div key={label} className="flex items-center gap-3 group">
+                  <div className="w-8 h-8 bg-white/6 border border-white/8 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-[#F5C518]/12 group-hover:border-[#F5C518]/20 transition-colors">
+                    <Icon size={14} className="text-[#F5C518]/80 group-hover:text-[#F5C518] transition-colors" />
                   </div>
                   <div>
                     <p className="text-white/80 text-sm font-semibold leading-tight">{label}</p>

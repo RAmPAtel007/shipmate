@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import {
   Bell, Pin, Plus, X, Megaphone,
-  ChevronDown, ChevronUp, Trash2,
+  ChevronDown, ChevronUp, Trash2, CalendarDays, Building2, Globe,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
 import { Avatar, Badge, EmptyState, Button } from '@/components/ui';
 import { announcementService } from '@/lib/services/announcementService';
+import { holidayService, type Holiday } from '@/lib/services/holidayService';
 import { formatDate } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
 import type { Announcement } from '@/lib/types/index';
@@ -38,7 +39,6 @@ function AnnouncementCard({
 
   useEffect(() => {
     if (!isRead) {
-      // Mark as read after 1s of being visible
       const t = setTimeout(() => onRead(item.id!), 1000);
       return () => clearTimeout(t);
     }
@@ -52,7 +52,6 @@ function AnnouncementCard({
         !isRead && 'border-l-4 border-l-[#1B2B5E]'
       )}
     >
-      {/* Header */}
       <div className="flex items-start gap-3">
         <div className={cn(
           'w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0',
@@ -108,7 +107,6 @@ function AnnouncementCard({
             )}
           </div>
 
-          {/* Body */}
           <div className="mt-2">
             <p className="text-sm text-gray-700 whitespace-pre-wrap">
               {isLong && !expanded ? bodyPreview + '…' : item.body}
@@ -124,6 +122,60 @@ function AnnouncementCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Holiday card ──────────────────────────────────────────────────────────────
+
+function HolidayCard({ holiday }: { holiday: Holiday }) {
+  const [year, month, day] = holiday.date.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  const dayNum = d.toLocaleDateString('en-US', { day: '2-digit' });
+  const monthStr = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+  const isCompany = holiday.type === 'company';
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const isPast = d < today;
+
+  return (
+    <div className={cn(
+      'bg-white rounded-2xl border p-3.5 sm:p-4 flex items-center gap-3 sm:gap-4 transition-all',
+      isPast ? 'border-gray-100 opacity-60' : 'border-gray-100'
+    )}>
+      {/* Date block */}
+      <div className={cn(
+        'w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex flex-col items-center justify-center flex-shrink-0',
+        isPast ? 'bg-gray-100' : 'bg-[#1B2B5E]'
+      )}>
+        <span className={cn('font-black text-base sm:text-lg leading-none', isPast ? 'text-gray-400' : 'text-white')}>{dayNum}</span>
+        <span className={cn('text-[9px] font-bold tracking-widest leading-none mt-0.5', isPast ? 'text-gray-400' : 'text-[#F5C518]')}>{monthStr}</span>
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-bold text-gray-900 truncate">{holiday.name}</p>
+          <span className={cn(
+            'text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0',
+            isCompany ? 'bg-[#1B2B5E] text-white' : 'bg-gray-100 text-gray-600'
+          )}>
+            {isCompany ? 'Company' : 'Regional'}
+          </span>
+        </div>
+        <p className="text-xs text-gray-400 mt-0.5">{weekday}</p>
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {holiday.regions.map(r => (
+            <span key={r} className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{r}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Past indicator */}
+      {isPast && (
+        <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-full flex-shrink-0 hidden sm:block">Past</span>
+      )}
     </div>
   );
 }
@@ -241,27 +293,60 @@ function ComposeModal({
   );
 }
 
+// ── Helpers: holiday seen tracking (localStorage) ────────────────────────────
+
+function getSeenHolidayIds(userId: string): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(`seen_holidays_${userId}`);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function markHolidaysSeen(userId: string, ids: string[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = getSeenHolidayIds(userId);
+    ids.forEach(id => existing.add(id));
+    localStorage.setItem(`seen_holidays_${userId}`, JSON.stringify([...existing]));
+  } catch { /* ignore */ }
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+type Tab = 'announcements' | 'holidays';
 
 export default function AnnouncementsPage() {
   const { currentUser } = useAuth();
   const { can } = useRole();
+  const [tab, setTab] = useState<Tab>('announcements');
 
   const [items, setItems] = useState<Announcement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingAnn, setLoadingAnn] = useState(true);
   const [showCompose, setShowCompose] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const data = await announcementService.getAnnouncements(50);
-      setItems(data);
-    } finally {
-      setLoading(false);
-    }
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [loadingHol, setLoadingHol] = useState(true);
+  const [seenHolidayIds, setSeenHolidayIds] = useState<Set<string>>(new Set());
+
+  async function loadAnnouncements() {
+    setLoadingAnn(true);
+    try { setItems(await announcementService.getAnnouncements(50)); }
+    finally { setLoadingAnn(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  async function loadHolidays() {
+    setLoadingHol(true);
+    try { setHolidays(await holidayService.getHolidays()); }
+    finally { setLoadingHol(false); }
+  }
+
+  // Load seen state from localStorage once user is available
+  useEffect(() => {
+    if (currentUser) setSeenHolidayIds(getSeenHolidayIds(currentUser.uid));
+  }, [currentUser?.uid]);
+
+  useEffect(() => { loadAnnouncements(); loadHolidays(); }, []);
 
   async function handlePin(id: string, pinned: boolean) {
     await announcementService.togglePin(id, pinned);
@@ -277,8 +362,6 @@ export default function AnnouncementsPage() {
 
   function handleRead(id: string) {
     if (!currentUser) return;
-    // markAsRead saves to localStorage immediately and fires Firestore in background.
-    // UI update is synchronous — no await needed.
     announcementService.markAsRead(id, currentUser.uid);
     setItems(prev =>
       prev.map(a =>
@@ -289,28 +372,47 @@ export default function AnnouncementsPage() {
     );
   }
 
+  // When user opens the Holidays tab, mark all loaded holidays as seen
+  function handleSwitchToHolidays() {
+    setTab('holidays');
+    if (!currentUser || holidays.length === 0) return;
+    const ids = holidays.map(h => h.id!).filter(Boolean);
+    markHolidaysSeen(currentUser.uid, ids);
+    setSeenHolidayIds(prev => new Set([...prev, ...ids]));
+  }
+
   if (!currentUser) return null;
 
+  const unreadCount = items.filter(a => !announcementService.hasUserRead(a, currentUser.uid)).length;
+
+  // Upcoming holidays (today onwards)
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const upcomingHolidays = holidays.filter(h => {
+    const [y, m, d] = h.date.split('-').map(Number);
+    return new Date(y, m - 1, d) >= today;
+  });
+  const pastHolidays = holidays.filter(h => {
+    const [y, m, d] = h.date.split('-').map(Number);
+    return new Date(y, m - 1, d) < today;
+  });
+
+  // Unseen = upcoming holidays whose IDs are not in seenHolidayIds
+  const unseenHolidayCount = upcomingHolidays.filter(h => h.id && !seenHolidayIds.has(h.id)).length;
+
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto pb-8">
+    <div className="p-4 md:p-6 max-w-2xl mx-auto pb-24 md:pb-8">
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-gray-900">Announcements</h1>
-            {!loading && (() => {
-              const unread = items.filter(a => !announcementService.hasUserRead(a, currentUser.uid)).length;
-              return unread > 0 ? (
-                <span className="min-w-[20px] h-5 bg-[#1B2B5E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1.5">
-                  {unread}
-                </span>
-              ) : null;
-            })()}
-          </div>
-          <p className="text-sm text-gray-500 mt-0.5">{items.length} total</p>
+          <h1 className="text-xl font-bold text-gray-900">
+            {tab === 'announcements' ? 'Announcements' : 'Holidays'}
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {tab === 'announcements' ? `${items.length} total` : `${upcomingHolidays.length} upcoming`}
+          </p>
         </div>
-        {can.postAnnouncements && (
+        {tab === 'announcements' && can.postAnnouncements && (
           <Button
             variant="primary"
             size="sm"
@@ -323,38 +425,123 @@ export default function AnnouncementsPage() {
         )}
       </div>
 
-      {/* List */}
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white rounded-2xl p-4 space-y-2">
-              <div className="h-4 w-48 rounded shimmer" />
-              <div className="h-3 w-full rounded shimmer" />
-              <div className="h-3 w-3/4 rounded shimmer" />
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          icon={<Bell size={24} />}
-          title="No announcements yet"
-          description={can.postAnnouncements ? 'Post your first announcement above.' : 'Check back later.'}
-          action={can.postAnnouncements ? { label: 'Post Announcement', onClick: () => setShowCompose(true) } : undefined}
-        />
-      ) : (
-        <div className="space-y-3">
-          {items.map(item => (
-            <AnnouncementCard
-              key={item.id}
-              item={item}
-              currentUserId={currentUser.uid}
-              canAdmin={can.postAnnouncements || can.pinAnnouncements}
-              onPin={handlePin}
-              onDelete={handleDelete}
-              onRead={handleRead}
-            />
-          ))}
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-5">
+        <button
+          onClick={() => setTab('announcements')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all',
+            tab === 'announcements'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          <Bell size={14} />
+          Announcements
+          {unreadCount > 0 && (
+            <span className="min-w-[18px] h-4.5 bg-[#1B2B5E] text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={handleSwitchToHolidays}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all',
+            tab === 'holidays'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          <CalendarDays size={14} />
+          Holidays
+          {unseenHolidayCount > 0 && (
+            <span className="min-w-[18px] bg-[#F5C518] text-gray-900 text-[9px] font-bold rounded-full flex items-center justify-center px-1 py-0.5">
+              {unseenHolidayCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Announcements tab ── */}
+      {tab === 'announcements' && (
+        loadingAnn ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-2xl p-4 space-y-2">
+                <div className="h-4 w-48 rounded shimmer" />
+                <div className="h-3 w-full rounded shimmer" />
+                <div className="h-3 w-3/4 rounded shimmer" />
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<Bell size={24} />}
+            title="No announcements yet"
+            description={can.postAnnouncements ? 'Post your first announcement above.' : 'Check back later.'}
+            action={can.postAnnouncements ? { label: 'Post Announcement', onClick: () => setShowCompose(true) } : undefined}
+          />
+        ) : (
+          <div className="space-y-3">
+            {items.map(item => (
+              <AnnouncementCard
+                key={item.id}
+                item={item}
+                currentUserId={currentUser.uid}
+                canAdmin={can.postAnnouncements || can.pinAnnouncements}
+                onPin={handlePin}
+                onDelete={handleDelete}
+                onRead={handleRead}
+              />
+            ))}
+          </div>
+        )
+      )}
+
+      {/* ── Holidays tab ── */}
+      {tab === 'holidays' && (
+        loadingHol ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl shimmer flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-40 rounded shimmer" />
+                  <div className="h-3 w-24 rounded shimmer" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : holidays.length === 0 ? (
+          <EmptyState
+            icon={<CalendarDays size={24} />}
+            title="No holidays added"
+            description="HR will post upcoming holidays here."
+          />
+        ) : (
+          <div className="space-y-4">
+            {/* Upcoming */}
+            {upcomingHolidays.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Upcoming</p>
+                <div className="space-y-2">
+                  {upcomingHolidays.map(h => <HolidayCard key={h.id} holiday={h} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Past */}
+            {pastHolidays.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 mt-4">Past</p>
+                <div className="space-y-2">
+                  {[...pastHolidays].reverse().map(h => <HolidayCard key={h.id} holiday={h} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {showCompose && currentUser && (
@@ -362,7 +549,7 @@ export default function AnnouncementsPage() {
           authorId={currentUser.uid}
           authorName={currentUser.name}
           onClose={() => setShowCompose(false)}
-          onPosted={load}
+          onPosted={loadAnnouncements}
         />
       )}
     </div>

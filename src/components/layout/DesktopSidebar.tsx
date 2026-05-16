@@ -27,9 +27,15 @@ interface Props {
   currentUser: ShipmateUser;
   activeTab: string;
   unreadCount?: number;
+  unreadAnnouncements?: number;
 }
 
-export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Props) {
+export function DesktopSidebar({
+  currentUser,
+  activeTab,
+  unreadCount = 0,
+  unreadAnnouncements = 0,
+}: Props) {
   const { signOutUser } = useAuth();
   const router = useRouter();
   const isAdmin = ['super_admin', 'hr_admin'].includes(currentUser.role);
@@ -46,11 +52,13 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
       {/* ── Workspace header ──────────────────────────────────────── */}
       <div className="px-3 py-3.5 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-2.5 px-1 py-0.5">
-          {/* Icon badge */}
-          <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 shadow-inner">
-            <span className="text-[#F5C518] font-black text-sm leading-none tracking-tighter">S</span>
-          </div>
-          {/* Wordmark */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://www.shipcube.com/img/logo.svg"
+            alt="Shipcube"
+            className="h-5 brightness-0 invert opacity-90 flex-shrink-0"
+          />
+          <div className="w-px h-4 bg-white/20 flex-shrink-0" />
           <div className="flex flex-col">
             <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipmate</span>
             <span className="text-[#F5C518]/60 text-[8px] font-semibold tracking-[0.08em] uppercase mt-0.5">
@@ -64,7 +72,12 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
       <nav className="flex-1 px-2 py-2 overflow-y-auto space-y-0.5">
         {NAV_ITEMS.map(({ icon: Icon, label, href, key }) => {
           const isActive = activeTab === key;
-          const showBadge = key === 'chat' && unreadCount > 0;
+
+          // Badge count per nav item
+          const badge =
+            key === 'chat' && unreadCount > 0 ? unreadCount :
+            key === 'announcements' && unreadAnnouncements > 0 ? unreadAnnouncements :
+            0;
 
           return (
             <Link
@@ -82,9 +95,9 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
                 strokeWidth={isActive ? 2.5 : 2}
               />
               <span className="flex-1 truncate">{label}</span>
-              {showBadge && (
+              {badge > 0 && (
                 <span className="min-w-[18px] h-[18px] bg-[#F5C518] text-[#1B2B5E] text-[10px] font-bold rounded-full flex items-center justify-center px-1">
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {badge > 9 ? '9+' : badge}
                 </span>
               )}
             </Link>
@@ -111,10 +124,9 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
         )}
       </nav>
 
-      {/* ── User profile (bottom, Slack-style) ───────────────────── */}
+      {/* ── User profile ─────────────────────────────────────────── */}
       <div className="px-2 py-2 border-t border-white/10 flex-shrink-0">
         <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer group">
-          {/* Avatar with online indicator */}
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-[#2D4080] flex items-center justify-center overflow-hidden border-2 border-white/20">
               {currentUser.photoURL ? (
@@ -129,7 +141,6 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
                 <span className="text-white text-xs font-bold">{initials}</span>
               )}
             </div>
-            {/* Online dot */}
             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 border-2 border-[#1B2B5E] rounded-full" />
           </div>
 
@@ -140,7 +151,6 @@ export function DesktopSidebar({ currentUser, activeTab, unreadCount = 0 }: Prop
             </p>
           </div>
 
-          {/* Sign out */}
           <button
             onClick={handleSignOut}
             title="Sign out"

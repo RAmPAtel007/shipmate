@@ -122,6 +122,15 @@ service cloud.firestore {
       allow write: if isHRorAdmin();
     }
 
+    // ─── HOLIDAYS ──────────────────────────────────────────────────
+    // Company & regional holidays — all employees can read, HR/admin can write
+
+    match /holidays/{holidayId} {
+      allow read: if isSignedIn();
+      allow create, update: if isHRorAdmin();
+      allow delete: if isHRorAdmin();
+    }
+
     // ─── ANNOUNCEMENTS ─────────────────────────────────────────────
 
     match /announcements/{announcementId} {

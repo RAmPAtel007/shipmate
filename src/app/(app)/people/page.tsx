@@ -325,14 +325,14 @@ export default function PeoplePage() {
     <div className="p-5 md:p-8 max-w-6xl mx-auto pb-8">
 
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">People</h1>
-          <p className="text-gray-500 mt-1">
-            {loading ? 'Loading…' : `${users.length} @shipcube.com team member${users.length !== 1 ? 's' : ''}`}
+          <p className="text-gray-500 mt-1 text-sm truncate">
+            {loading ? 'Loading…' : `${users.length} team member${users.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-400 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
+        <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm flex-shrink-0">
           <div className="w-2 h-2 bg-emerald-400 rounded-full" />
           @shipcube.com only
         </div>

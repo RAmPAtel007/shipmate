@@ -144,57 +144,58 @@ export default function HomePage() {
         {/* Glow orb */}
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-[#F5C518]/10 rounded-full blur-[80px] pointer-events-none" />
 
-        <div className="relative z-10 max-w-5xl mx-auto px-6 py-8">
-          <div className="flex items-start justify-between gap-4">
+        <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-white/50 text-sm mb-1">{dayName}, {dateStr}</p>
-              <h1 className="text-2xl font-black text-white tracking-tight">
+              <p className="text-white/50 text-xs sm:text-sm mb-1">{dayName}, {dateStr}</p>
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                 {greeting}, {firstName} 👋
               </h1>
-              <p className="text-white/40 text-sm mt-1.5">{"Here's what's happening at Shipcube today."}</p>
+              <p className="text-white/40 text-xs sm:text-sm mt-1">{"Here's what's happening today."}</p>
             </div>
 
             {/* Pending approval alert */}
             {can.approveLeaves && !loading && pendingLeaves.length > 0 && (
               <button
                 onClick={() => router.push('/leaves?tab=approvals')}
-                className="flex-shrink-0 flex items-center gap-2 bg-[#F5C518] hover:bg-[#f0bc00] text-[#1B2B5E] text-xs font-bold px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-[#F5C518]/20"
+                className="flex-shrink-0 flex items-center gap-1.5 bg-[#F5C518] hover:bg-[#f0bc00] text-[#1B2B5E] text-xs font-bold px-3 py-2 rounded-xl transition-colors shadow-lg"
               >
-                <AlertCircle size={13} />
-                {pendingLeaves.length} pending approval{pendingLeaves.length > 1 ? 's' : ''}
-                <ChevronRight size={12} />
+                <AlertCircle size={12} />
+                <span className="hidden sm:inline">{pendingLeaves.length} pending approval{pendingLeaves.length > 1 ? 's' : ''}</span>
+                <span className="sm:hidden">{pendingLeaves.length} pending</span>
+                <ChevronRight size={11} />
               </button>
             )}
           </div>
 
           {/* ── Stats strip ─────────────────────────────────────────── */}
-          <div className="flex gap-6 mt-7 pt-6 border-t border-white/10">
+          <div className="flex gap-4 sm:gap-6 mt-5 sm:mt-7 pt-5 sm:pt-6 border-t border-white/10 overflow-x-auto no-scrollbar">
             {[
               {
                 label: 'Away today',
                 value: loading ? '—' : String(onLeave.length),
                 dot: onLeave.length > 0 ? 'bg-orange-400' : 'bg-emerald-400',
-                sub: loading ? '' : onLeave.length === 0 ? 'Full team in' : `team member${onLeave.length > 1 ? 's' : ''} out`,
+                sub: loading ? '' : onLeave.length === 0 ? 'Full team in' : `out`,
               },
               ...(can.approveLeaves ? [{
-                label: 'Pending approvals',
+                label: 'Pending',
                 value: loading ? '—' : String(pendingLeaves.length),
                 dot: pendingLeaves.length > 0 ? 'bg-[#F5C518]' : 'bg-emerald-400',
-                sub: loading ? '' : pendingLeaves.length === 0 ? 'All caught up' : 'need your action',
+                sub: loading ? '' : pendingLeaves.length === 0 ? 'All clear' : 'approvals',
               }] : []),
               {
-                label: 'Birthdays this week',
+                label: 'Birthdays',
                 value: loading ? '—' : String(birthdaysThisWeek.length),
                 dot: 'bg-pink-400',
-                sub: loading ? '' : birthdaysThisWeek.length === 0 ? 'None upcoming' : birthdaysThisWeek.map(u => u.name.split(' ')[0]).join(', '),
+                sub: loading ? '' : birthdaysThisWeek.length === 0 ? 'None this week' : birthdaysThisWeek.map(u => u.name.split(' ')[0]).slice(0,2).join(', '),
               },
             ].map(stat => (
-              <div key={stat.label} className="flex items-center gap-3">
+              <div key={stat.label} className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stat.dot}`} />
                 <div>
-                  <p className="text-white/40 text-[11px] font-medium uppercase tracking-wider">{stat.label}</p>
-                  <p className="text-white font-bold text-lg leading-tight">{stat.value}
-                    {stat.sub && <span className="text-white/40 text-xs font-normal ml-1.5">{stat.sub}</span>}
+                  <p className="text-white/40 text-[10px] sm:text-[11px] font-medium uppercase tracking-wider">{stat.label}</p>
+                  <p className="text-white font-bold text-base sm:text-lg leading-tight">{stat.value}
+                    {stat.sub && <span className="text-white/40 text-xs font-normal ml-1">{stat.sub}</span>}
                   </p>
                 </div>
               </div>
@@ -204,12 +205,12 @@ export default function HomePage() {
       </div>
 
       {/* ── Body ──────────────────────────────────────────────────────────── */}
-      <div className="max-w-5xl mx-auto px-6 py-7 space-y-7">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7 space-y-5 sm:space-y-7">
 
         {/* ── Quick actions ──────────────────────────────────────────────── */}
         <div>
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Quick actions</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
             {QUICK_ACTIONS.map(({ label, desc, icon: Icon, href, iconBg, iconColor }) => (
               <button
                 key={label}

@@ -105,8 +105,8 @@ function ApplyLeaveForm({ onClose, onSuccess }: { onClose: () => void; onSuccess
       setError('"To" date cannot be before "From" date.');
       return;
     }
-    if (form.reason.trim().length < 10) {
-      setError('Please provide at least 10 characters for the reason.');
+    if (!form.reason.trim()) {
+      setError('Please provide a reason for your leave.');
       return;
     }
     setLoading(true);
@@ -211,14 +211,9 @@ function ApplyLeaveForm({ onClose, onSuccess }: { onClose: () => void; onSuccess
 
           {/* Reason */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-gray-600">Reason</label>
-              <span className="text-[10px] text-gray-400">{form.reason.length}/500</span>
-            </div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1.5">Reason</label>
             <textarea
               required
-              minLength={10}
-              maxLength={500}
               rows={3}
               placeholder="Brief reason for your leave…"
               value={form.reason}
@@ -230,7 +225,7 @@ function ApplyLeaveForm({ onClose, onSuccess }: { onClose: () => void; onSuccess
           <div className="flex gap-3 pt-1">
             <Button variant="outline" size="md" fullWidth onClick={onClose} type="button">Cancel</Button>
             <Button variant="primary" size="md" fullWidth loading={loading} type="submit"
-              disabled={!form.startDate || form.reason.length < 10}
+              disabled={!form.startDate || !form.reason.trim()}
             >
               Submit Request
             </Button>
