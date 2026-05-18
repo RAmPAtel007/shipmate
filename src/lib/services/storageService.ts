@@ -59,7 +59,22 @@ export const storageService = {
     validateFile(file, MAX_ATTACHMENT_SIZE);
     const path = `chat-attachments/${channelId}/${messageId}/${file.name}`;
     const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file, { contentType: file.type });
+
+    // Wrap in a timeout so a CORS/network block surfaces as a clear error
+    // rather than hanging the UI indefinitely.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(
+          'Upload timed out. Firebase Storage CORS is likely not configured. ' +
+          'See cors.json in the project root and apply it to your bucket.'
+        ));
+      }, 60_000);
+
+      uploadBytes(storageRef, file, { contentType: file.type })
+        .then(() => { clearTimeout(timer); resolve(); })
+        .catch(err => { clearTimeout(timer); reject(err); });
+    });
+
     const url = await getDownloadURL(storageRef);
     return { url, name: file.name, size: file.size, type: file.type, storagePath: path };
   },
