@@ -2,7 +2,7 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // ─── HELPER FUNCTIONS ──────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     function isSignedIn() {
       return request.auth != null;
@@ -11,68 +11,83 @@ service firebase.storage {
     // NOTE: We intentionally avoid Firestore lookups inside Storage rules.
     // Firestore cross-service reads are unreliable (latency, quota, missing
     // fields) and are the #1 cause of spurious storage/unauthorized errors.
-    // Role-based access is enforced at the application layer instead.
+    // Role-based access is enforced at the application layer.
+
+    function isAllowedImageType() {
+      return request.resource.contentType.matches('image/.*');
+    }
 
     function isAllowedFileType() {
       return request.resource.contentType.matches('image/.*') ||
+             request.resource.contentType.matches('video/.*') ||
+             request.resource.contentType.matches('audio/.*') ||
+             request.resource.contentType.matches('text/.*') ||
              request.resource.contentType == 'application/pdf' ||
+             request.resource.contentType == 'application/msword' ||
              request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+             request.resource.contentType == 'application/vnd.ms-excel' ||
              request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-             request.resource.contentType == 'text/plain' ||
-             request.resource.contentType == 'text/markdown' ||
-             request.resource.contentType == 'application/zip';
+             request.resource.contentType == 'application/vnd.ms-powerpoint' ||
+             request.resource.contentType == 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+             request.resource.contentType == 'application/zip' ||
+             request.resource.contentType == 'application/x-zip-compressed' ||
+             request.resource.contentType == 'application/x-rar-compressed' ||
+             request.resource.contentType == 'application/x-7z-compressed' ||
+             request.resource.contentType == 'application/json';
     }
 
-    function isUnder10MB() {
-      return request.resource.size < 10 * 1024 * 1024;
+    function isUnder500MB() {
+      return request.resource.size < 500 * 1024 * 1024;
+    }
+
+    function isUnder50MB() {
+      return request.resource.size < 50 * 1024 * 1024;
     }
 
     function isUnder2MB() {
       return request.resource.size < 2 * 1024 * 1024;
     }
 
-    // ─── AVATARS ───────────────────────────────────────────────────
+    // ── Avatars ────────────────────────────────────────────────────────────────
 
     match /avatars/{uid}/{allPaths=**} {
-      allow read: if isSignedIn();
-      // Users can only overwrite their own avatar; must be an image under 2 MB
-      allow write: if isSignedIn() &&
-                   request.auth.uid == uid &&
-                   request.resource.contentType.matches('image/.*') &&
-                   isUnder2MB();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn()
+                   && request.auth.uid == uid
+                   && isAllowedImageType()
+                   && isUnder2MB();
     }
 
-    // ─── CHAT ATTACHMENTS ──────────────────────────────────────────
+    // ── Chat attachments ───────────────────────────────────────────────────────
 
     match /chat-attachments/{channelId}/{messageId}/{filename} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn() && isAllowedFileType() && isUnder50MB();
     }
 
-    // ─── LONG MESSAGES (stored as .md files) ───────────────────────
+    // ── Long messages (.md blobs) ──────────────────────────────────────────────
 
     match /long-messages/{channelId}/{messageId}/content.md {
-      allow read: if isSignedIn();
+      allow read:  if isSignedIn();
       allow write: if isSignedIn() && request.resource.size < 1 * 1024 * 1024;
     }
 
-    // ─── DOCUMENTS (all folders) ───────────────────────────────────
-    // Any authenticated employee can read and write documents.
-    // Folder-level access control (finance, hr restricted to admins)
-    // is enforced by the client application, not here, to avoid the
-    // latency and reliability issues of Firestore lookups in Storage rules.
+    // ── Documents ─────────────────────────────────────────────────────────────
+    // Folder-level access control (finance, hr restricted to admins) is
+    // enforced at the application layer, not here, to avoid Firestore lookup
+    // latency and reliability issues inside Storage rules.
 
     match /documents/{allPaths=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
+      allow read:   if isSignedIn();
+      allow write:  if isSignedIn() && isAllowedFileType() && isUnder500MB();
       allow delete: if isSignedIn();
     }
 
-    // ─── LEAVE DOCUMENTS ───────────────────────────────────────────
+    // ── Leave documents ────────────────────────────────────────────────────────
 
     match /leave-documents/{allPaths=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isAllowedFileType() && isUnder10MB();
+      allow read:   if isSignedIn();
+      allow write:  if isSignedIn() && isAllowedFileType() && isUnder50MB();
       allow delete: if isSignedIn();
     }
 

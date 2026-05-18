@@ -97,14 +97,16 @@ export const storageService = {
     return new Promise((resolve, reject) => {
       const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
 
-      // 60-second hard timeout — surfaces bucket / CORS / rules hangs
+      // 90-second hard timeout — surfaces CORS / rules / network hangs
       const timeout = setTimeout(() => {
         uploadTask.cancel();
         reject(new Error(
-          'Upload timed out after 60 s. Check that NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is set ' +
-          'correctly (e.g. your-project.appspot.com) and that Firebase Storage CORS is configured.'
+          'Upload timed out. This is usually a CORS issue on the Firebase Storage bucket. ' +
+          'Run: gcloud storage buckets update gs://YOUR_BUCKET --cors-file=cors.json ' +
+          '(see cors.json in the project root). Also ensure all NEXT_PUBLIC_FIREBASE_* ' +
+          'environment variables are set in your hosting platform dashboard.'
         ));
-      }, 60_000);
+      }, 90_000);
 
       uploadTask.on(
         'state_changed',
