@@ -89,34 +89,56 @@ function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
 }
 
 /**
- * Upload directly to Firebase Storage via the resumable upload API.
- * Uses the Firebase SDK — no CORS configuration is needed for SDK uploads
- * once the bucket has CORS applied (see cors.json + deployment instructions).
+ * Upload a file to Firebase Storage.
  *
- * NOTE: Always pass `contentType` explicitly so that Firebase Storage security
- * rules' `isAllowedFileType()` check can evaluate `request.resource.contentType`.
- * If `file.type` is blank (common on Windows for .txt, .csv, etc.) the upload
- * would otherwise be denied as `storage/unauthorized`.
+ * Strategy:
+ *  • Files ≤ 10 MB  → uploadBytes   (single multipart POST to firebasestorage.googleapis.com)
+ *                      Firebase handles CORS on this endpoint automatically — no bucket
+ *                      CORS configuration required.
+ *  • Files  > 10 MB → uploadBytesResumable  (resumable session, supports progress callbacks)
+ *                      The session redirect goes to storage.googleapis.com, which requires
+ *                      the CORS config in cors.json to be applied to the bucket.
+ *
+ * Always pass contentType explicitly — if file.type is blank (common on Windows for .txt,
+ * .csv, etc.) Firebase Storage rules' isAllowedFileType() would deny the write.
  */
-function directUpload(
+async function directUpload(
   path: string,
   file: File,
   onProgress?: (pct: number) => void,
 ): Promise<{ url: string; storagePath: string }> {
-  const storageRef = ref(storage, path);
+  const storageRef  = ref(storage, path);
   const contentType = effectiveMime(file) || 'application/octet-stream';
 
+  // ── Small files: single-request upload (no session URI, no CORS issues) ──────
+  if (file.size <= 10 * 1024 * 1024) {
+    onProgress?.(10);
+    try {
+      const snapshot = await uploadBytes(storageRef, file, { contentType });
+      onProgress?.(100);
+      const url = await getDownloadURL(snapshot.ref);
+      return { url, storagePath: path };
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      // Surface Firebase error codes as friendly messages
+      if (raw.includes('storage/unauthorized')) {
+        throw new Error('Upload blocked — run: firebase deploy --only storage');
+      }
+      throw new Error(`Upload failed: ${raw}`);
+    }
+  }
+
+  // ── Large files: resumable upload with progress ───────────────────────────────
   return new Promise((resolve, reject) => {
     const uploadTask = uploadBytesResumable(storageRef, file, { contentType });
 
-    // 90-second timeout — makes hangs visible instead of silently spinning
     const timeout = setTimeout(() => {
       uploadTask.cancel();
       reject(new Error(
-        'Upload timed out — possible CORS issue. '
-        + 'Run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
+        'Upload timed out. Large file uploads require CORS to be configured — '
+        + 'run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
       ));
-    }, 90_000);
+    }, 120_000);
 
     uploadTask.on(
       'state_changed',
@@ -126,18 +148,16 @@ function directUpload(
       },
       error => {
         clearTimeout(timeout);
-        const friendlyMessages: Record<string, string> = {
+        const friendly: Record<string, string> = {
           'storage/unauthorized':
-            'Upload blocked by Firebase Storage rules. '
-            + 'Run: firebase deploy --only storage',
+            'Upload blocked — run: firebase deploy --only storage',
           'storage/canceled':             'Upload cancelled.',
           'storage/unknown':
-            'Storage error (likely CORS). '
-            + 'Run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
+            'Storage error — run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
           'storage/quota-exceeded':       'Firebase Storage quota exceeded.',
           'storage/retry-limit-exceeded': 'Upload failed after retries — check your connection.',
         };
-        reject(new Error(friendlyMessages[error.code] ?? `Upload failed: ${error.message}`));
+        reject(new Error(friendly[error.code] ?? `Upload failed: ${error.message}`));
       },
       async () => {
         clearTimeout(timeout);
@@ -164,10 +184,10 @@ export const storageService = {
     if (file.size > 2 * 1024 * 1024) throw new Error('Avatar must be under 2 MB.');
 
     const compressed = await storageService.compressImage(file, 0.5);
+    // Avatars are always small — uploadBytes is fine (no CORS issues)
     const path = `avatars/${uid}/profile.jpg`;
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, compressed, { contentType: 'image/jpeg' });
-    return getDownloadURL(storageRef);
+    const { url } = await directUpload(path, compressed);
+    return url;
   },
 
   // ── Chat attachment ─────────────────────────────────────────────────────────
