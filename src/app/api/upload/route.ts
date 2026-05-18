@@ -6,7 +6,10 @@
  * Edge function forwards it to Firebase Storage using the user's
  * Firebase Auth ID token.
  *
- * Supports files up to Vercel's Edge request limit (~4 MB per chunk).
+ * Uses a multipart/related upload so we can embed download-token metadata
+ * in one round-trip — no dependency on the response including downloadTokens.
+ *
+ * Supports files up to ~4 MB (Vercel Edge request body limit).
  * For larger files the client falls back to direct Firebase Storage upload
  * (which requires CORS to be configured on the bucket).
  */
@@ -43,9 +46,36 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Build a multipart/related body ──────────────────────────────────────────
+  // We generate our own download token so we can construct the URL without
+  // relying on Firebase returning `downloadTokens` in the upload response.
+
+  const downloadToken = globalThis.crypto.randomUUID();
+  const contentType   = file.type || 'application/octet-stream';
+  const boundary      = `fb${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+
+  const metadataJson = JSON.stringify({
+    contentType,
+    metadata: { firebaseStorageDownloadTokens: downloadToken },
+  });
+
+  const enc         = new TextEncoder();
+  const metaPart    = enc.encode(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadataJson}\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+  );
+  const closingPart = enc.encode(`\r\n--${boundary}--`);
+  const fileBuffer  = await file.arrayBuffer();
+
+  const body = new Uint8Array(metaPart.byteLength + fileBuffer.byteLength + closingPart.byteLength);
+  body.set(metaPart, 0);
+  body.set(new Uint8Array(fileBuffer), metaPart.byteLength);
+  body.set(closingPart, metaPart.byteLength + fileBuffer.byteLength);
+
+  // ── Upload to Firebase Storage ───────────────────────────────────────────────
+
   const encodedPath = encodeURIComponent(path);
   const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o`
-                    + `?uploadType=media&name=${encodedPath}`;
+                    + `?uploadType=multipart&name=${encodedPath}`;
 
   let uploadRes: Response;
   try {
@@ -53,35 +83,27 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': file.type || 'application/octet-stream',
-        'Content-Length': String(file.size),
+        'Content-Type': `multipart/related; boundary=${boundary}`,
       },
-      // @ts-expect-error — duplex is needed for streaming request bodies
-      duplex: 'half',
-      body: file.stream(),
+      body,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Network error reaching Firebase Storage: ${msg}` }, { status: 502 });
+    return NextResponse.json(
+      { error: `Network error reaching Firebase Storage: ${msg}` },
+      { status: 502 },
+    );
   }
 
   if (!uploadRes.ok) {
-    const body = await uploadRes.text().catch(() => '(no body)');
+    const responseBody = await uploadRes.text().catch(() => '(no body)');
     return NextResponse.json(
-      { error: `Firebase Storage rejected the upload (${uploadRes.status}): ${body}` },
+      { error: `Firebase Storage rejected the upload (${uploadRes.status}): ${responseBody}` },
       { status: uploadRes.status },
     );
   }
 
-  const data = (await uploadRes.json()) as { downloadTokens?: string };
-  const downloadToken = data.downloadTokens;
-
-  if (!downloadToken) {
-    return NextResponse.json(
-      { error: 'Firebase Storage did not return a download token.' },
-      { status: 500 },
-    );
-  }
+  // ── Build the authenticated download URL ────────────────────────────────────
 
   const url = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o`
             + `/${encodedPath}?alt=media&token=${downloadToken}`;

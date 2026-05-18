@@ -634,16 +634,27 @@ function MessageInput({
       {pendingAttachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {pendingAttachments.map(att => (
-            <div key={att.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
-              att.error ? 'border-red-200 bg-red-50' : att.uploading ? 'border-blue-100 bg-blue-50' : 'border-green-200 bg-green-50'
-            }`}>
+            <div
+              key={att.id}
+              title={att.error ?? undefined}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
+                att.error ? 'border-red-200 bg-red-50' : att.uploading ? 'border-blue-100 bg-blue-50' : 'border-green-200 bg-green-50'
+              }`}
+            >
               {att.uploading
                 ? <Loader2 size={11} className="animate-spin text-blue-400" />
                 : att.error
                   ? <AlertCircle size={11} className="text-red-400" />
                   : <CheckCircle2 size={11} className="text-green-500" />
               }
-              <span className="text-gray-700 max-w-[100px] truncate">{att.name}</span>
+              <span className={`max-w-[100px] truncate ${att.error ? 'text-red-600' : 'text-gray-700'}`}>
+                {att.name}
+              </span>
+              {att.error && (
+                <span className="text-red-500 max-w-[140px] truncate hidden sm:inline">
+                  — {att.error}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => setPendingAttachments(p => p.filter(a => a.id !== att.id))}
