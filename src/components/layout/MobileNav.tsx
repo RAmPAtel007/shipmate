@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Home, MessageSquare, Clock, Calendar, Megaphone } from 'lucide-react';
+import { Home, MessageSquare, Clock, Calendar, CalendarDays, Megaphone } from 'lucide-react';
 import type { ShipmateUser } from '@/lib/types';
 
 const TABS = [
@@ -9,6 +9,7 @@ const TABS = [
   { icon: MessageSquare, label: 'Chat',           href: '/chat',          key: 'chat' },
   { icon: Clock,         label: 'Attendance',     href: '/attendance',    key: 'attendance' },
   { icon: Calendar,      label: 'Leaves',         href: '/leaves',        key: 'leaves' },
+  { icon: CalendarDays,  label: 'Calendar',       href: '/calendar',      key: 'calendar' },
   { icon: Megaphone,     label: 'Updates',        href: '/announcements', key: 'announcements' },
 ] as const;
 

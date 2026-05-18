@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Home, MessageSquare, Calendar, Users,
+  Home, MessageSquare, Calendar, CalendarDays, Users,
   FolderOpen, Settings, LogOut, Megaphone, Shield,
   Clock, Receipt,
 } from 'lucide-react';
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { icon: MessageSquare, label: 'Chat',           href: '/chat',          key: 'chat' },
   { icon: Clock,         label: 'Attendance',     href: '/attendance',    key: 'attendance' },
   { icon: Calendar,      label: 'Leaves',         href: '/leaves',        key: 'leaves' },
+  { icon: CalendarDays,  label: 'Team Calendar',  href: '/calendar',      key: 'calendar' },
   { icon: Receipt,       label: 'Payslip',        href: '/payslip',       key: 'payslip' },
   { icon: Users,         label: 'People',         href: '/people',        key: 'people' },
   { icon: FolderOpen,    label: 'Documents',      href: '/documents',     key: 'documents' },

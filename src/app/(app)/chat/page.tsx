@@ -1046,12 +1046,18 @@ function Conversation({
 
   useEffect(() => {
     setMessages([]);
+    // Mark the channel read immediately when it opens
+    if (currentUser) markChannelRead(currentUser.uid, channel.id);
     const unsub = chatService.subscribeToChannel(channel.id, msgs => {
       setMessages(msgs);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      // Mark read again whenever new messages arrive — so the badge never re-appears
+      // while the user is actively viewing this channel
+      if (currentUser) markChannelRead(currentUser.uid, channel.id);
     });
     return unsub;
-  }, [channel.id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel.id, currentUser?.uid]);
 
   const handleSend = useCallback(async (text: string, attachments?: MessageAttachment[]) => {
     if (!currentUser) return;
@@ -1246,6 +1252,7 @@ function ChatPageInner() {
         if (accessible.length > 0) {
           const first = accessible.find(c => c.type === 'public') ?? accessible[0];
           setActiveChannelId(first.id);
+          markChannelRead(currentUser.uid, first.id);
         }
       }
     });
