@@ -42,6 +42,35 @@ const ALLOWED_TYPES = new Set([
   'audio/mpeg', 'audio/wav', 'audio/ogg',
 ]);
 
+// ── Extension → MIME fallback (for browsers that don't set file.type) ─────────
+
+const EXTENSION_MIME: Record<string, string> = {
+  txt: 'text/plain',   md: 'text/markdown',   csv: 'text/csv',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  zip: 'application/zip',  json: 'application/json',
+  jpg: 'image/jpeg',  jpeg: 'image/jpeg',  png: 'image/png',
+  gif: 'image/gif',   webp: 'image/webp',  svg: 'image/svg+xml',
+  mp4: 'video/mp4',   mov: 'video/quicktime', webm: 'video/webm',
+  mp3: 'audio/mpeg',  wav: 'audio/wav',    ogg: 'audio/ogg',
+};
+
+/**
+ * Returns the effective MIME type for a file.
+ * Some browsers (especially on Windows) leave file.type blank for common
+ * formats like .txt or .csv. We fall back to extension-based detection.
+ */
+function effectiveMime(file: File): string {
+  if (file.type && ALLOWED_TYPES.has(file.type)) return file.type;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return EXTENSION_MIME[ext] ?? file.type;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
@@ -52,15 +81,22 @@ function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
       + `(your file is ${(file.size / 1024 / 1024).toFixed(1)} MB).`,
     );
   }
-  if (!ALLOWED_TYPES.has(file.type)) {
-    throw new Error(`File type not supported: ${file.type || '(unknown)'}`);
+  const mime = effectiveMime(file);
+  if (!ALLOWED_TYPES.has(mime)) {
+    const ext = file.name.split('.').pop()?.toUpperCase() ?? 'unknown';
+    throw new Error(`File type not supported: .${ext} files`);
   }
 }
 
 /**
  * Upload directly to Firebase Storage via the resumable upload API.
- * Used for large files that exceed the Edge proxy limit.
- * Requires CORS to be configured on the bucket (see cors.json).
+ * Uses the Firebase SDK — no CORS configuration is needed for SDK uploads
+ * once the bucket has CORS applied (see cors.json + deployment instructions).
+ *
+ * NOTE: Always pass `contentType` explicitly so that Firebase Storage security
+ * rules' `isAllowedFileType()` check can evaluate `request.resource.contentType`.
+ * If `file.type` is blank (common on Windows for .txt, .csv, etc.) the upload
+ * would otherwise be denied as `storage/unauthorized`.
  */
 function directUpload(
   path: string,
@@ -68,17 +104,17 @@ function directUpload(
   onProgress?: (pct: number) => void,
 ): Promise<{ url: string; storagePath: string }> {
   const storageRef = ref(storage, path);
+  const contentType = effectiveMime(file) || 'application/octet-stream';
 
   return new Promise((resolve, reject) => {
-    const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
+    const uploadTask = uploadBytesResumable(storageRef, file, { contentType });
 
     // 90-second timeout — makes hangs visible instead of silently spinning
     const timeout = setTimeout(() => {
       uploadTask.cancel();
       reject(new Error(
-        'Upload timed out. For files over 4 MB, Firebase Storage CORS must be '
-        + 'configured. Run the Cloud Shell command in your project README or '
-        + 'apply cors.json to your storage bucket.',
+        'Upload timed out — possible CORS issue. '
+        + 'Run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
       ));
     }, 90_000);
 
@@ -91,11 +127,15 @@ function directUpload(
       error => {
         clearTimeout(timeout);
         const friendlyMessages: Record<string, string> = {
-          'storage/unauthorized':          'Upload blocked — check Firebase Storage security rules.',
-          'storage/canceled':              'Upload cancelled.',
-          'storage/unknown':               'Unknown storage error. Check the browser console.',
-          'storage/quota-exceeded':        'Firebase Storage quota exceeded.',
-          'storage/retry-limit-exceeded':  'Upload failed after retries — check your connection.',
+          'storage/unauthorized':
+            'Upload blocked by Firebase Storage rules. '
+            + 'Run: firebase deploy --only storage',
+          'storage/canceled':             'Upload cancelled.',
+          'storage/unknown':
+            'Storage error (likely CORS). '
+            + 'Run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
+          'storage/quota-exceeded':       'Firebase Storage quota exceeded.',
+          'storage/retry-limit-exceeded': 'Upload failed after retries — check your connection.',
         };
         reject(new Error(friendlyMessages[error.code] ?? `Upload failed: ${error.message}`));
       },

@@ -634,34 +634,30 @@ function MessageInput({
       {pendingAttachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {pendingAttachments.map(att => (
-            <div
-              key={att.id}
-              title={att.error ?? undefined}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
+            <div key={att.id} className="flex flex-col gap-0.5">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
                 att.error ? 'border-red-200 bg-red-50' : att.uploading ? 'border-blue-100 bg-blue-50' : 'border-green-200 bg-green-50'
-              }`}
-            >
-              {att.uploading
-                ? <Loader2 size={11} className="animate-spin text-blue-400" />
-                : att.error
-                  ? <AlertCircle size={11} className="text-red-400" />
-                  : <CheckCircle2 size={11} className="text-green-500" />
-              }
-              <span className={`max-w-[100px] truncate ${att.error ? 'text-red-600' : 'text-gray-700'}`}>
-                {att.name}
-              </span>
-              {att.error && (
-                <span className="text-red-500 max-w-[140px] truncate hidden sm:inline">
-                  — {att.error}
+              }`}>
+                {att.uploading
+                  ? <Loader2 size={11} className="animate-spin text-blue-400" />
+                  : att.error
+                    ? <AlertCircle size={11} className="text-red-400 flex-shrink-0" />
+                    : <CheckCircle2 size={11} className="text-green-500 flex-shrink-0" />
+                }
+                <span className={`max-w-[120px] truncate ${att.error ? 'text-red-600' : 'text-gray-700'}`}>
+                  {att.name}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setPendingAttachments(p => p.filter(a => a.id !== att.id))}
+                  className="text-gray-400 hover:text-red-500 transition-colors ml-0.5"
+                >
+                  <XIcon size={11} />
+                </button>
+              </div>
+              {att.error && (
+                <p className="text-[10px] text-red-500 px-1 max-w-[260px]">{att.error}</p>
               )}
-              <button
-                type="button"
-                onClick={() => setPendingAttachments(p => p.filter(a => a.id !== att.id))}
-                className="text-gray-400 hover:text-red-500 transition-colors"
-              >
-                <XIcon size={11} />
-              </button>
             </div>
           ))}
         </div>

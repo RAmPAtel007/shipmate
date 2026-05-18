@@ -166,6 +166,16 @@ service cloud.firestore {
       );
     }
 
+    // ─── FOLDER SETTINGS ───────────────────────────────────────────
+    // Custom labels for fixed system folders (General, HR, etc.)
+    // All signed-in users can read; only HR/admin can write.
+
+    match /folder_settings/{folderId} {
+      allow read: if isSignedIn();
+      allow create, update: if isHRorAdmin();
+      allow delete: if isHRorAdmin();
+    }
+
     // ─── DOCUMENT SECTIONS ─────────────────────────────────────────
     // Custom top-level folders created by HR/admin in the documents view.
     // All signed-in users can read; only HR/admin can write.
