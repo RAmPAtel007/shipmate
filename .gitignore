@@ -60,3 +60,15 @@ next-env.d.ts
 serviceAccountKey.json
 *-firebase-adminsdk-*.json
 *.serviceAccountKey.json
+functions/.env
+functions/.env.*
+functions/.secret.local
+
+# ── Internal project scaffolding / planning docs (not for public repo) ────────
+DELIVERABLES.md
+FILES_MANIFEST.md
+IMPLEMENTATION_CHECKLIST.md
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.tgz
+.env.local.example

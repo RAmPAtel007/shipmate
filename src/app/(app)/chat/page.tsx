@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  useState, useEffect, useRef, useCallback, memo, Suspense,
+  useState, useEffect, useRef, useCallback, memo, useMemo, Suspense,
 } from 'react';
 import {
   Hash, Send, ArrowLeft, Paperclip, Copy, ChevronDown,
@@ -63,13 +63,15 @@ const EMOJI_PICKER_LIST = [
 // ── Markdown renderer (bold + italic) ─────────────────────────────────────────
 
 function renderMarkdown(text: string): React.ReactNode {
-  // Split on **bold** or _italic_
-  const parts = text.split(/(\*\*[^*\n]+\*\*|_[^_\n]+_)/g);
+  // Split on **bold**, _italic_, or @mention
+  const parts = text.split(/(\*\*[^*\n]+\*\*|_[^_\n]+_|@\w+)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**'))
       return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
     if (part.startsWith('_') && part.endsWith('_'))
       return <em key={i}>{part.slice(1, -1)}</em>;
+    if (/^@\w+$/.test(part))
+      return <span key={i} className="text-[#1B2B5E] font-semibold bg-[#1B2B5E]/10 rounded px-0.5">{part}</span>;
     return part;
   });
 }
@@ -478,10 +480,12 @@ function MessageInput({
   channelName,
   channelId,
   onSend,
+  mentionableUsers = [],
 }: {
   channelName: string;
   channelId: string;
   onSend: (text: string, attachments?: MessageAttachment[]) => Promise<void>;
+  mentionableUsers?: { uid: string; name: string; photoURL?: string | null }[];
 }) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -490,6 +494,35 @@ function MessageInput({
   const textareaRef  = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const emojiRef     = useRef<HTMLDivElement>(null);
+
+  // @mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const filteredMentions = mentionQuery !== null
+    ? mentionableUsers.filter(u =>
+        u.name.toLowerCase().includes(mentionQuery.toLowerCase())
+      ).slice(0, 8)
+    : [];
+  const showMentionMenu = filteredMentions.length > 0;
+
+  function selectMention(user: { uid: string; name: string; photoURL?: string | null }) {
+    const firstName = user.name.split(' ')[0];
+    const insertText = `@${firstName} `;
+    const newText = text.slice(0, mentionStart) + insertText + text.slice(mentionStart + 1 + (mentionQuery?.length ?? 0));
+    setText(newText);
+    setMentionQuery(null);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        const pos = mentionStart + insertText.length;
+        el.selectionStart = pos;
+        el.selectionEnd = pos;
+        el.focus();
+      }
+    }, 0);
+  }
 
   const readyAttachments = pendingAttachments.filter(a => a.url && !a.error);
   const isEmpty = !text.trim() && readyAttachments.length === 0;
@@ -513,6 +546,12 @@ function MessageInput({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (showMentionMenu) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredMentions.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Tab' || (e.key === 'Enter')) { e.preventDefault(); if (filteredMentions[mentionIndex]) selectMention(filteredMentions[mentionIndex]); return; }
+      if (e.key === 'Escape') { setMentionQuery(null); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
   }
 
@@ -617,6 +656,34 @@ function MessageInput({
         </div>
       )}
 
+      {/* @mention dropdown */}
+      {showMentionMenu && (
+        <div className="mb-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+          {filteredMentions.map((user, idx) => (
+            <button
+              key={user.uid}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); selectMention(user); }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                idx === mentionIndex ? 'bg-[#1B2B5E]/8' : 'hover:bg-gray-50'
+              }`}
+            >
+              {user.photoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.photoURL} alt={user.name} className="w-6 h-6 rounded-full flex-shrink-0 object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[8px] font-bold text-[#1B2B5E]">
+                    {user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </span>
+                </div>
+              )}
+              <span className="text-sm font-medium text-gray-800">{user.name}</span>
+              <span className="text-xs text-gray-400 ml-auto">@{user.name.split(' ')[0]}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className={`border rounded-xl overflow-hidden transition-colors bg-white ${
         isEmpty ? 'border-gray-200' : 'border-gray-300'
       } focus-within:border-gray-400 focus-within:shadow-sm`}>
@@ -624,7 +691,22 @@ function MessageInput({
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={e => { setText(e.target.value); autoResize(); }}
+          onChange={e => {
+            const val = e.target.value;
+            setText(val);
+            autoResize();
+            // Detect @mention: look for @word at or before cursor
+            const cursor = e.target.selectionStart;
+            const beforeCursor = val.slice(0, cursor);
+            const match = beforeCursor.match(/@(\w*)$/);
+            if (match) {
+              setMentionQuery(match[1]);
+              setMentionStart(cursor - match[0].length);
+              setMentionIndex(0);
+            } else {
+              setMentionQuery(null);
+            }
+          }}
           onKeyDown={handleKeyDown}
           placeholder={`Message ${channelName}`}
           rows={1}
@@ -934,6 +1016,27 @@ function Conversation({
   const otherUid = isDM ? channel.members.find(uid => uid !== currentUserId) : undefined;
   const dmHeaderPhoto = otherUid ? photoMap?.get(otherUid) : undefined;
 
+  // Build list of mentionable users.
+  // DMs: restrict to the channel participants.
+  // Public / department / group channels: use the full userMap so every
+  // platform member is always taggable (channel.members may be sparse).
+  const mentionableUsers = useMemo(() => {
+    if (channel.type === 'dm') {
+      return channel.members
+        .map(uid => ({
+          uid,
+          name: userMap.get(uid) ?? '',
+          photoURL: photoMap?.get(uid) ?? null,
+        }))
+        .filter(u => u.name.length > 0);
+    }
+    const result: { uid: string; name: string; photoURL: string | null }[] = [];
+    userMap.forEach((name, uid) => {
+      result.push({ uid, name, photoURL: photoMap?.get(uid) ?? null });
+    });
+    return result;
+  }, [channel.type, channel.members, userMap, photoMap]);
+
   useEffect(() => {
     setMessages([]);
     const unsub = chatService.subscribeToChannel(channel.id, msgs => {
@@ -1052,6 +1155,7 @@ function Conversation({
         channelName={isDM ? displayName : `#${displayName}`}
         channelId={channel.id}
         onSend={handleSend}
+        mentionableUsers={mentionableUsers}
       />
     </div>
   );

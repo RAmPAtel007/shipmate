@@ -88,6 +88,7 @@ const IN_PT: Record<string, number> = {
 
 type Country   = 'US' | 'IN';
 type EmpStatus = 'Ready' | 'Pending' | 'On Hold';
+type PayBasis  = 'monthly' | 'weekly' | 'daily';
 
 /** payrollProfiles/{uid} — salary structure, persists across months */
 interface PayrollProfile {
@@ -95,18 +96,30 @@ interface PayrollProfile {
   country: Country;
   // US
   baseSalary: number;
+  payBasis: PayBasis;      // monthly | weekly | daily — default monthly
   usState: string;
   k401Pct: number;
   healthIns: number;
+  // US custom tax overrides (0 / undefined = use calculated default)
+  fedTaxOverride?: number;    // flat $/period fed tax override
+  ssRate?: number;            // SS rate % (default 6.2)
+  medicareRate?: number;      // Medicare rate % (default 1.45)
+  stateTaxOverride?: number;  // flat $/period state tax override
+  sdiRateOverride?: number;   // SDI rate % override (default = state lookup)
   // India
   basic: number;
   hra: number;
   specialAllowance: number;
-  lta: number;        // annual ₹
+  lta: number;               // annual ₹
   medical: number;
   pfApplicable: boolean;
-  pfRate: number;     // PF % — default 12, editable when pfApplicable=true
+  pfRate: number;            // PF % — default 12, editable when pfApplicable=true
+  pfFixedAmount?: number;    // Fixed PF in ₹ — overrides % when > 0
   esiApplicable: boolean;
+  esiEmpRate?: number;       // ESI employee rate % (default 0.75)
+  esiErRate?: number;        // ESI employer rate % (default 3.25)
+  ptOverride?: number;       // Professional Tax ₹/mo override (default = state lookup)
+  tdsOverride?: number;      // TDS ₹/mo override (0 = use auto-calc)
   inState: string;
   // meta
   updatedAt?: any;
@@ -134,9 +147,17 @@ interface ModalForm {
   // profile
   country: Country;
   baseSalary: number;
+  payBasis: PayBasis;
   usState: string;
   k401Pct: number;
   healthIns: number;
+  // US tax overrides
+  fedTaxOverride: number;
+  ssRate: number;
+  medicareRate: number;
+  stateTaxOverride: number;
+  sdiRateOverride: number;
+  // India
   basic: number;
   hra: number;
   specialAllowance: number;
@@ -144,7 +165,12 @@ interface ModalForm {
   medical: number;
   pfApplicable: boolean;
   pfRate: number;
+  pfFixedAmount: number;
   esiApplicable: boolean;
+  esiEmpRate: number;
+  esiErRate: number;
+  ptOverride: number;
+  tdsOverride: number;
   inState: string;
   // monthly entry
   otHours: number;
@@ -173,22 +199,88 @@ function calcUSFedTax(annualGross: number): number {
   return Math.round(tax / 12);
 }
 
+// ── Pay-basis helpers ──────────────────────────────────────────────────────────
+
+/** Normalize any pay basis to a monthly dollar amount */
+function toMonthly(amount: number, basis: PayBasis): number {
+  if (basis === 'weekly') return amount * 52 / 12;   // ×4.333…
+  if (basis === 'daily')  return amount * 260 / 12;  // 5 days × 52 wks / 12
+  return amount; // monthly
+}
+/** Per-day rate for LWP deduction */
+function lwpDailyRate(amount: number, basis: PayBasis): number {
+  if (basis === 'weekly') return amount / 5;   // 5 working days/week
+  if (basis === 'daily')  return amount;       // already daily
+  return amount / 22;                          // monthly ÷ 22 working days
+}
+/** Per-hour rate for OT auto-calc */
+function otHourlyRate(amount: number, basis: PayBasis): number {
+  if (basis === 'weekly') return amount / 40;  // 40 hrs/week
+  if (basis === 'daily')  return amount / 8;   // 8 hrs/day
+  return amount / 160;                         // monthly ÷ 160 hrs
+}
+
 function calcUSPayroll(p: PayrollProfile, e: PayrollEntry) {
-  // LWP: per-day rate = baseSalary / 22 working days
-  const lwpDeduction = e.unpaidLeaveDays > 0
-    ? Math.round((p.baseSalary / 22) * e.unpaidLeaveDays) : 0;
-  const gross      = p.baseSalary - lwpDeduction + e.otPay + e.adjustments;
-  const annualGross = gross * 12;
-  const fedTax     = calcUSFedTax(p.baseSalary * 12);
-  const stateTax   = Math.round(gross * (STATE_TAX[p.usState] ?? 0));
-  const ssCapped   = Math.min(annualGross, 168600) / 12;
-  const ss         = Math.round(ssCapped * 0.062);
-  const addlMedicare = annualGross > 200000 ? Math.round((annualGross - 200000) * 0.009 / 12) : 0;
-  const medicare   = Math.round(gross * 0.0145) + addlMedicare;
-  const k401       = Math.round(gross * p.k401Pct / 100);
-  const sdi        = Math.round(gross * (STATE_SDI[p.usState] ?? 0));
-  const ded        = fedTax + stateTax + ss + medicare + k401 + p.healthIns + sdi;
-  return { gross, lwpDeduction, fedTax, stateTax, ss, medicare, addlMedicare, k401, healthIns:p.healthIns, sdi, ded, net:gross-ded, erSS:ss, erMedicare:Math.round(gross*0.0145) };
+  const basis          = p.payBasis ?? 'monthly';
+  const periodsPerYear = basis === 'weekly' ? 52 : basis === 'daily' ? 260 : 12;
+  const monthlyBase    = toMonthly(p.baseSalary, basis);
+
+  // ── Rate helpers — custom overrides win, otherwise defaults ──────────────────
+  const ssRatePct     = (p.ssRate     != null && p.ssRate     >= 0) ? p.ssRate     : 6.2;
+  const medRatePct    = (p.medicareRate != null && p.medicareRate >= 0) ? p.medicareRate : 1.45;
+  const sdiRatePct    = (p.sdiRateOverride != null && p.sdiRateOverride >= 0) ? p.sdiRateOverride : (STATE_SDI[p.usState] ?? 0) * 100;
+
+  // ── Monthly figures (used for summary cards, CSV export, live preview) ───────
+  const dayRate        = lwpDailyRate(p.baseSalary, basis);
+  const lwpDeduction   = e.unpaidLeaveDays > 0 ? Math.round(dayRate * e.unpaidLeaveDays) : 0;
+  const gross          = monthlyBase - lwpDeduction + e.otPay + e.adjustments;
+  const annualGross    = gross * 12;
+  const fedTaxCalc     = calcUSFedTax(monthlyBase * 12);
+  const fedTax         = (p.fedTaxOverride != null && p.fedTaxOverride >= 0) ? p.fedTaxOverride : fedTaxCalc;
+  const stateTaxCalc   = Math.round(gross * (STATE_TAX[p.usState] ?? 0));
+  const stateTax       = (p.stateTaxOverride != null && p.stateTaxOverride >= 0) ? p.stateTaxOverride : stateTaxCalc;
+  const ssCapped       = Math.min(annualGross, 168600) / 12;
+  const ss             = Math.round(ssCapped * ssRatePct / 100);
+  const addlMedicare   = annualGross > 200000 ? Math.round((annualGross - 200000) * 0.009 / 12) : 0;
+  const medicare       = Math.round(gross * medRatePct / 100) + addlMedicare;
+  const k401           = Math.round(gross * p.k401Pct / 100);
+  const sdi            = Math.round(gross * sdiRatePct / 100);
+  const ded            = fedTax + stateTax + ss + medicare + k401 + p.healthIns + sdi;
+
+  // ── Per-period figures (used on the payslip for weekly / daily bases) ─────────
+  const slipBase       = basis === 'monthly' ? monthlyBase : p.baseSalary;
+  const slipLwp        = e.unpaidLeaveDays > 0 ? Math.round(dayRate * e.unpaidLeaveDays) : 0;
+  const slipGross      = slipBase - slipLwp + e.otPay + e.adjustments;
+  const slipFedTax     = Math.round(fedTax * 12 / periodsPerYear);
+  const slipStateTax   = (p.stateTaxOverride != null && p.stateTaxOverride >= 0)
+    ? Math.round(p.stateTaxOverride * 12 / periodsPerYear)
+    : Math.round(slipGross * (STATE_TAX[p.usState] ?? 0));
+  const slipSsCapped   = Math.min(slipGross * periodsPerYear, 168600) / periodsPerYear;
+  const slipSS         = Math.round(slipSsCapped * ssRatePct / 100);
+  const slipMedicare   = Math.round(slipGross * medRatePct / 100);
+  const slipK401       = Math.round(slipGross * p.k401Pct / 100);
+  const slipHealthIns  = Math.round(p.healthIns * 12 / periodsPerYear);
+  const slipSdi        = Math.round(slipGross * sdiRatePct / 100);
+  const slipDed        = slipFedTax + slipStateTax + slipSS + slipMedicare + slipK401 + slipHealthIns + slipSdi;
+  const slipNet        = slipGross - slipDed;
+
+  return {
+    // monthly
+    gross, lwpDeduction, fedTax, stateTax, ss, medicare, addlMedicare,
+    k401, healthIns: p.healthIns, sdi, ded, net: gross - ded,
+    erSS: ss, erMedicare: Math.round(gross * medRatePct / 100),
+    monthlyBase,
+    // rates actually used (for display)
+    ssRatePct, medRatePct, sdiRatePct,
+    fedTaxIsOverride: (p.fedTaxOverride != null && p.fedTaxOverride >= 0),
+    stateTaxIsOverride: (p.stateTaxOverride != null && p.stateTaxOverride >= 0),
+    // per-period (payslip)
+    slipGross, slipLwp, slipFedTax, slipStateTax,
+    slipSS, slipMedicare, slipK401, slipHealthIns, slipSdi,
+    slipDed, slipNet,
+    slipErSS: slipSS, slipErMedicare: slipMedicare,
+    periodsPerYear,
+  };
 }
 
 function calcINTDS(annualGross: number): number {
@@ -209,24 +301,39 @@ function calcINTDS(annualGross: number): number {
 
 function calcINPayroll(p: PayrollProfile, e: PayrollEntry) {
   const ltaM  = Math.round(p.lta / 12);
-  const pfRate = p.pfApplicable ? ((p.pfRate ?? 12) / 100) : 0;
+  const pfRate  = p.pfApplicable ? ((p.pfRate ?? 12) / 100) : 0;
+  const pfFixed = p.pfApplicable && (p.pfFixedAmount ?? 0) > 0;
   // LWP: per-day rate = basic / 26 working days (India standard)
   const lwpDeduction = e.unpaidLeaveDays > 0
     ? Math.round((p.basic / 26) * e.unpaidLeaveDays) : 0;
   const gross = p.basic + p.hra + p.specialAllowance + ltaM + p.medical
                 + e.otPay + e.adjustments - lwpDeduction;
-  const pf    = p.pfApplicable ? Math.round(p.basic * pfRate) : 0;
-  const esi   = (p.esiApplicable && gross <= 21000) ? Math.round(gross * 0.0075) : 0;
-  const pt    = IN_PT[p.inState] ?? 0;
-  const tds   = calcINTDS(gross * 12);
+  // PF: use fixed ₹ amount when set, otherwise % of basic
+  const pf = p.pfApplicable
+    ? (pfFixed ? (p.pfFixedAmount ?? 0) : Math.round(p.basic * pfRate))
+    : 0;
+  const esiEmpRatePct = (p.esiEmpRate != null && p.esiEmpRate >= 0) ? p.esiEmpRate : 0.75;
+  const esiErRatePct  = (p.esiErRate  != null && p.esiErRate  >= 0) ? p.esiErRate  : 3.25;
+  const esi   = (p.esiApplicable && gross <= 21000) ? Math.round(gross * esiEmpRatePct / 100) : 0;
+  const ptCalc = IN_PT[p.inState] ?? 0;
+  const pt    = (p.ptOverride != null && p.ptOverride >= 0) ? p.ptOverride : ptCalc;
+  const tdsCalc = calcINTDS(gross * 12);
+  const tds   = (p.tdsOverride != null && p.tdsOverride > 0) ? p.tdsOverride : tdsCalc;
   const ded   = pf + esi + pt + tds;
   return {
     gross, lwpDeduction, pf, esi, pt, tds, ded, net:gross-ded,
-    erPF: p.pfApplicable ? Math.round(p.basic * pfRate) : 0,
-    erESI: (p.esiApplicable&&gross<=21000) ? Math.round(gross*0.0325) : 0,
+    erPF: p.pfApplicable
+      ? (pfFixed ? (p.pfFixedAmount ?? 0) : Math.round(p.basic * pfRate))
+      : 0,
+    erESI: (p.esiApplicable&&gross<=21000) ? Math.round(gross * esiErRatePct / 100) : 0,
     gratuity: Math.round(p.basic*0.0481),
     basic:p.basic, hra:p.hra, specialAllowance:p.specialAllowance, lta:ltaM, medical:p.medical,
     pfRatePct: (p.pfRate ?? 12),
+    pfIsFixed: pfFixed,
+    pfFixedAmt: p.pfFixedAmount ?? 0,
+    esiEmpRatePct, esiErRatePct,
+    ptIsOverride: (p.ptOverride != null && p.ptOverride >= 0),
+    tdsIsOverride: (p.tdsOverride != null && p.tdsOverride > 0),
   };
 }
 
@@ -288,9 +395,12 @@ function downloadElement(id: string, filename: string) {
 function blankForm(country: Country): ModalForm {
   return {
     country,
-    baseSalary:0, usState:'CA', k401Pct:6, healthIns:450,
+    baseSalary:0, payBasis:'monthly', usState:'CA', k401Pct:6, healthIns:450,
+    fedTaxOverride:-1, ssRate:6.2, medicareRate:1.45, stateTaxOverride:-1, sdiRateOverride:-1,
     basic:0, hra:0, specialAllowance:0, lta:0, medical:1250,
-    pfApplicable:true, pfRate:12, esiApplicable:false, inState:'Maharashtra',
+    pfApplicable:true, pfRate:12, pfFixedAmount:0,
+    esiApplicable:false, esiEmpRate:0.75, esiErRate:3.25, ptOverride:-1, tdsOverride:0,
+    inState:'Maharashtra',
     otHours:0, otPay:0, adjustments:0,
     unpaidLeaveDays:0, paidLeaveDays:0,
     status:'Pending', notes:'',
@@ -301,9 +411,15 @@ function profileToForm(profile: PayrollProfile, entry?: PayrollEntry): ModalForm
   return {
     country: profile.country,
     baseSalary: profile.baseSalary ?? 0,
+    payBasis: (profile.payBasis ?? 'monthly') as PayBasis,
     usState: profile.usState ?? 'CA',
     k401Pct: profile.k401Pct ?? 6,
     healthIns: profile.healthIns ?? 450,
+    fedTaxOverride: profile.fedTaxOverride ?? -1,
+    ssRate: profile.ssRate ?? 6.2,
+    medicareRate: profile.medicareRate ?? 1.45,
+    stateTaxOverride: profile.stateTaxOverride ?? -1,
+    sdiRateOverride: profile.sdiRateOverride ?? -1,
     basic: profile.basic ?? 0,
     hra: profile.hra ?? 0,
     specialAllowance: profile.specialAllowance ?? 0,
@@ -311,7 +427,12 @@ function profileToForm(profile: PayrollProfile, entry?: PayrollEntry): ModalForm
     medical: profile.medical ?? 1250,
     pfApplicable: profile.pfApplicable ?? true,
     pfRate: profile.pfRate ?? 12,
+    pfFixedAmount: profile.pfFixedAmount ?? 0,
     esiApplicable: profile.esiApplicable ?? false,
+    esiEmpRate: profile.esiEmpRate ?? 0.75,
+    esiErRate: profile.esiErRate ?? 3.25,
+    ptOverride: profile.ptOverride ?? -1,
+    tdsOverride: profile.tdsOverride ?? 0,
     inState: profile.inState ?? 'Maharashtra',
     otHours: entry?.otHours ?? 0,
     otPay: entry?.otPay ?? 0,
@@ -371,17 +492,42 @@ function FSelect({ value, onChange, opts }: { value:string; onChange:(v:string)=
 function USPayslipModal({ user, profile, entry, onClose }: {
   user:ShipmateUser; profile:PayrollProfile; entry:PayrollEntry; onClose:()=>void;
 }) {
-  const p = calcUSPayroll(profile, entry);
+  const p        = calcUSPayroll(profile, entry);
+  const basis    = profile.payBasis ?? 'monthly';
+  const isWeekly = basis === 'weekly';
+  const isDaily  = basis === 'daily';
+  const periodLabel = isWeekly ? 'Weekly' : isDaily ? 'Daily' : MONTH_LABEL;
+  const periodNote  = isWeekly ? 'Weekly pay' : isDaily ? 'Daily pay' : 'Monthly pay';
   const initials = user.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const printId = `us-payslip-${user.uid}`;
+  const printId  = `us-payslip-${user.uid}`;
+
+  // Use per-period slip values for weekly/daily; monthly values for monthly basis
+  const sGross      = isWeekly || isDaily ? p.slipGross      : p.gross;
+  const sLwp        = isWeekly || isDaily ? p.slipLwp        : p.lwpDeduction;
+  const sFedTax     = isWeekly || isDaily ? p.slipFedTax     : p.fedTax;
+  const sStateTax   = isWeekly || isDaily ? p.slipStateTax   : p.stateTax;
+  const sSS         = isWeekly || isDaily ? p.slipSS         : p.ss;
+  const sMedicare   = isWeekly || isDaily ? p.slipMedicare   : p.medicare;
+  const sK401       = isWeekly || isDaily ? p.slipK401       : p.k401;
+  const sHealthIns  = isWeekly || isDaily ? p.slipHealthIns  : p.healthIns;
+  const sSdi        = isWeekly || isDaily ? p.slipSdi        : p.sdi;
+  const sDed        = isWeekly || isDaily ? p.slipDed        : p.ded;
+  const sNet        = isWeekly || isDaily ? p.slipNet        : p.net;
+  const sErSS       = isWeekly || isDaily ? p.slipErSS       : p.erSS;
+  const sErMedicare = isWeekly || isDaily ? p.slipErMedicare : p.erMedicare;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose}/>
       <div id={printId} className="relative w-full max-w-md h-full bg-white shadow-2xl flex flex-col overflow-y-auto">
         <div className="bg-[#1B2B5E] px-6 py-5">
           <div className="flex items-start justify-between mb-4">
-            <div><p className="text-xs text-white/50 uppercase tracking-wide font-medium">Pay Stub</p>
-              <p className="text-lg font-black text-white mt-0.5">{MONTH_LABEL}</p></div>
+            <div>
+              <p className="text-xs text-white/50 uppercase tracking-wide font-medium">
+                {isWeekly ? 'Weekly Pay Stub' : isDaily ? 'Daily Pay Stub' : 'Pay Stub'}
+              </p>
+              <p className="text-lg font-black text-white mt-0.5">{periodLabel}</p>
+            </div>
             <button onClick={onClose} className="text-white/50 hover:text-white"><X size={20}/></button>
           </div>
           <div className="flex items-center gap-3">
@@ -394,40 +540,43 @@ function USPayslipModal({ user, profile, entry, onClose }: {
           <section>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Earnings</p>
             <div className="space-y-2">
-              <PSRow label="Base Salary" val={fmtUSD(profile.baseSalary)}/>
-              {p.lwpDeduction > 0 && <PSRow label={`Leave Without Pay (${entry.unpaidLeaveDays} days)`} val={`-${fmtUSD(p.lwpDeduction)}`} vc="text-red-500"/>}
-              {entry.otPay>0 && <PSRow label={`Overtime (${entry.otHours} hrs)`} val={fmtUSD(entry.otPay)} vc="text-amber-500"/>}
-              {entry.adjustments!==0 && <PSRow label={entry.adjustments>0?'Bonus':'Deduction'} val={(entry.adjustments>0?'+':'')+fmtUSD(entry.adjustments)} vc={entry.adjustments>0?'text-green-600':'text-red-500'}/>}
-              <PSRow label="Gross Pay" val={fmtUSD(p.gross)} bold border/>
+              <PSRow
+                label={isWeekly ? 'Weekly Base Pay' : isDaily ? 'Daily Base Pay' : 'Base Salary'}
+                val={fmtUSD(isWeekly || isDaily ? profile.baseSalary : p.monthlyBase)}
+              />
+              {sLwp > 0 && <PSRow label={`Leave Without Pay (${entry.unpaidLeaveDays} day${entry.unpaidLeaveDays !== 1 ? 's' : ''})`} val={`-${fmtUSD(sLwp)}`} vc="text-red-500"/>}
+              {entry.otPay > 0 && <PSRow label={`Overtime (${entry.otHours} hrs)`} val={fmtUSD(entry.otPay)} vc="text-amber-500"/>}
+              {entry.adjustments !== 0 && <PSRow label={entry.adjustments > 0 ? 'Bonus' : 'Deduction'} val={(entry.adjustments > 0 ? '+' : '') + fmtUSD(entry.adjustments)} vc={entry.adjustments > 0 ? 'text-green-600' : 'text-red-500'}/>}
+              <PSRow label="Gross Pay" val={fmtUSD(sGross)} bold border/>
             </div>
           </section>
           <section>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Deductions</p>
             <div className="space-y-2">
-              <PSRow label="Federal Income Tax" val={`-${fmtUSD(p.fedTax)}`} vc="text-red-500"/>
-              <PSRow label={`${profile.usState} State Tax${STATE_TAX[profile.usState]===0?' (None)':''}`}
-                val={STATE_TAX[profile.usState]===0?'—':`-${fmtUSD(p.stateTax)}`}
-                vc={STATE_TAX[profile.usState]===0?'text-green-600':'text-red-500'}/>
-              <PSRow label={`Social Security (6.2%${p.ss !== Math.round(p.gross*0.062) ? ' · wage base cap' : ''})`} val={`-${fmtUSD(p.ss)}`} vc="text-red-400"/>
-              <PSRow label={`Medicare (1.45%${p.addlMedicare > 0 ? ' + 0.9% surtax' : ''})`} val={`-${fmtUSD(p.medicare)}`} vc="text-red-400"/>
-              <PSRow label={`401(k) ${profile.k401Pct}%`} val={`-${fmtUSD(p.k401)}`} vc="text-red-400"/>
-              <PSRow label="Health Insurance" val={`-${fmtUSD(p.healthIns)}`} vc="text-red-400"/>
-              {p.sdi > 0 && <PSRow label={`${profile.usState} SDI`} val={`-${fmtUSD(p.sdi)}`} vc="text-red-400"/>}
-              <PSRow label="Total Deductions" val={`-${fmtUSD(p.ded)}`} vc="text-red-600" bold border/>
+              <PSRow label="Federal Income Tax" val={`-${fmtUSD(sFedTax)}`} vc="text-red-500"/>
+              <PSRow label={`${profile.usState} State Tax${STATE_TAX[profile.usState] === 0 ? ' (None)' : ''}`}
+                val={STATE_TAX[profile.usState] === 0 ? '—' : `-${fmtUSD(sStateTax)}`}
+                vc={STATE_TAX[profile.usState] === 0 ? 'text-green-600' : 'text-red-500'}/>
+              <PSRow label={`Social Security (${p.ssRatePct}%)`} val={`-${fmtUSD(sSS)}`} vc="text-red-400"/>
+              <PSRow label={`Medicare (${p.medRatePct}%)`} val={`-${fmtUSD(sMedicare)}`} vc="text-red-400"/>
+              <PSRow label={`401(k) ${profile.k401Pct}%`} val={`-${fmtUSD(sK401)}`} vc="text-red-400"/>
+              <PSRow label={`Health Insurance${isWeekly ? ' (weekly)' : isDaily ? ' (daily)' : ''}`} val={`-${fmtUSD(sHealthIns)}`} vc="text-red-400"/>
+              {sSdi > 0 && <PSRow label={`${profile.usState} SDI`} val={`-${fmtUSD(sSdi)}`} vc="text-red-400"/>}
+              <PSRow label="Total Deductions" val={`-${fmtUSD(sDed)}`} vc="text-red-600" bold border/>
             </div>
           </section>
           <section>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Employer Contributions</p>
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <PSRow label="Social Security Match" val={fmtUSD(p.erSS)} vc="text-gray-600"/>
-              <PSRow label="Medicare Match" val={fmtUSD(p.erMedicare)} vc="text-gray-600"/>
+              <PSRow label="Social Security Match" val={fmtUSD(sErSS)} vc="text-gray-600"/>
+              <PSRow label="Medicare Match" val={fmtUSD(sErMedicare)} vc="text-gray-600"/>
             </div>
           </section>
           <div className="bg-[#1B2B5E] rounded-2xl p-5 flex items-center justify-between">
             <div>
               <p className="text-white/50 text-[11px] uppercase tracking-wider">Net Pay</p>
-              <p className="text-white text-3xl font-black mt-1">{fmtUSD(p.net)}</p>
-              <p className="text-white/40 text-xs mt-0.5">Direct deposit · {MONTH_LABEL.split(' ')[1] === '2026' ? '31 May' : ''}</p>
+              <p className="text-white text-3xl font-black mt-1">{fmtUSD(sNet)}</p>
+              <p className="text-white/40 text-xs mt-0.5">{periodNote} · {profile.usState}</p>
             </div>
             <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
               <DollarSign size={20} className="text-[#F5C518]"/>
@@ -436,7 +585,7 @@ function USPayslipModal({ user, profile, entry, onClose }: {
         </div>
         <div className="px-6 py-4 border-t flex gap-3">
           <button
-            onClick={() => printElement(printId, `Pay Stub - ${user.name} - ${MONTH_LABEL}`)}
+            onClick={() => printElement(printId, `Pay Stub - ${user.name} - ${periodLabel}`)}
             className="flex-1 flex items-center justify-center gap-2 bg-[#1B2B5E] text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-[#2D4080] transition-colors"
           >
             <Printer size={14}/>Print / Save PDF
@@ -497,8 +646,8 @@ function INPayslipModal({ user, profile, entry, onClose }: {
           <section>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Deductions</p>
             <div className="space-y-2">
-              {profile.pfApplicable && <PSRow label={`PF — Employee ${p.pfRatePct}%`} val={`-${fmtINR(p.pf)}`} vc="text-red-500"/>}
-              {p.esi>0 && <PSRow label="ESI — Employee 0.75%" val={`-${fmtINR(p.esi)}`} vc="text-red-400"/>}
+              {profile.pfApplicable && <PSRow label={p.pfIsFixed ? `PF — Employee (Fixed ₹${p.pfFixedAmt.toLocaleString('en-IN')})` : `PF — Employee ${p.pfRatePct}%`} val={`-${fmtINR(p.pf)}`} vc="text-red-500"/>}
+              {p.esi>0 && <PSRow label={`ESI — Employee ${p.esiEmpRatePct}%`} val={`-${fmtINR(p.esi)}`} vc="text-red-400"/>}
               <PSRow label={`Professional Tax (${profile.inState})`}
                 val={p.pt>0?`-${fmtINR(p.pt)}`:'Nil'} vc={p.pt>0?'text-red-400':'text-green-600'}/>
               {p.tds>0
@@ -510,8 +659,8 @@ function INPayslipModal({ user, profile, entry, onClose }: {
           <section>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Employer Contributions</p>
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <PSRow label={`PF — Employer ${p.pfRatePct}%`} val={fmtINR(p.erPF)} vc="text-gray-600"/>
-              {p.erESI>0 && <PSRow label="ESI — Employer 3.25%" val={fmtINR(p.erESI)} vc="text-gray-600"/>}
+              <PSRow label={p.pfIsFixed ? `PF — Employer (Fixed ₹${p.pfFixedAmt.toLocaleString('en-IN')})` : `PF — Employer ${p.pfRatePct}%`} val={fmtINR(p.erPF)} vc="text-gray-600"/>
+              {p.erESI>0 && <PSRow label={`ESI — Employer ${p.esiErRatePct}%`} val={fmtINR(p.erESI)} vc="text-gray-600"/>}
               <PSRow label="Gratuity (4.81%)" val={fmtINR(p.gratuity)} vc="text-gray-600"/>
             </div>
           </section>
@@ -562,7 +711,7 @@ function PSRow({ label, val, vc='text-gray-800', bold=false, border=false }:{
 // ─── Edit / Add Modal ─────────────────────────────────────────────────────────
 
 function EditPayrollModal({
-  user, existingProfile, existingEntry, defaultCountry, adminUid, onClose,
+  user, existingProfile, existingEntry, defaultCountry, adminUid, onClose, onSaved,
 }: {
   user: ShipmateUser;
   existingProfile?: PayrollProfile;
@@ -570,6 +719,7 @@ function EditPayrollModal({
   defaultCountry: Country;
   adminUid: string;
   onClose: () => void;
+  onSaved?: (profile: PayrollProfile) => void;
 }) {
   const [form, setForm] = useState<ModalForm>(
     existingProfile
@@ -577,17 +727,28 @@ function EditPayrollModal({
       : blankForm(defaultCountry)
   );
   const [saving, setSaving] = useState(false);
+  const [showTaxes, setShowTaxes] = useState(false);
 
   // Live preview of calculated payroll
   const liveProfile: PayrollProfile = {
     uid: user.uid, country: form.country,
-    baseSalary: Number(form.baseSalary)||0, usState: form.usState,
+    baseSalary: Number(form.baseSalary)||0, payBasis: form.payBasis, usState: form.usState,
     k401Pct: Number(form.k401Pct)||0, healthIns: Number(form.healthIns)||0,
+    fedTaxOverride: Number(form.fedTaxOverride),
+    ssRate: String(form.ssRate) !== '' ? Number(form.ssRate) : undefined,
+    medicareRate: String(form.medicareRate) !== '' ? Number(form.medicareRate) : undefined,
+    stateTaxOverride: Number(form.stateTaxOverride),
+    sdiRateOverride: Number(form.sdiRateOverride),
     basic: Number(form.basic)||0, hra: Number(form.hra)||0,
     specialAllowance: Number(form.specialAllowance)||0,
     lta: Number(form.lta)||0, medical: Number(form.medical)||0,
     pfApplicable: form.pfApplicable, pfRate: Number(form.pfRate)||12,
+    pfFixedAmount: Number(form.pfFixedAmount)||0,
     esiApplicable: form.esiApplicable,
+    esiEmpRate: String(form.esiEmpRate) !== '' ? Number(form.esiEmpRate) : undefined,
+    esiErRate: String(form.esiErRate) !== '' ? Number(form.esiErRate) : undefined,
+    ptOverride: Number(form.ptOverride),
+    tdsOverride: Number(form.tdsOverride)||0,
     inState: form.inState,
   };
   const liveEntry: PayrollEntry = {
@@ -606,7 +767,7 @@ function EditPayrollModal({
   function handleOTHours(v: string) {
     const hrs = Number(v)||0;
     if (form.country === 'US' && form.baseSalary) {
-      const hourly = (Number(form.baseSalary)||0) / 160;
+      const hourly = otHourlyRate(Number(form.baseSalary)||0, form.payBasis);
       setForm(f => ({ ...f, otHours: hrs, otPay: Math.round(hourly * 1.5 * hrs) }));
     } else {
       setForm(f => ({ ...f, otHours: hrs }));
@@ -622,17 +783,32 @@ function EditPayrollModal({
     }
     setSaving(true);
     try {
-      // Save payroll profile
-      await setDoc(doc(db, 'payrollProfiles', user.uid), {
+      // Build the profile object once — used for both Firestore write and optimistic update
+      const savedProfile: PayrollProfile = {
         uid: user.uid, country: form.country,
-        baseSalary: Number(form.baseSalary)||0, usState: form.usState,
+        baseSalary: Number(form.baseSalary)||0, payBasis: form.payBasis, usState: form.usState,
         k401Pct: Number(form.k401Pct)||0, healthIns: Number(form.healthIns)||0,
+        fedTaxOverride: Number(form.fedTaxOverride),
+        ssRate: String(form.ssRate) !== '' && Number(form.ssRate) >= 0 ? Number(form.ssRate) : 6.2,
+        medicareRate: String(form.medicareRate) !== '' && Number(form.medicareRate) >= 0 ? Number(form.medicareRate) : 1.45,
+        stateTaxOverride: Number(form.stateTaxOverride),
+        sdiRateOverride: Number(form.sdiRateOverride),
         basic: Number(form.basic)||0, hra: Number(form.hra)||0,
         specialAllowance: Number(form.specialAllowance)||0,
         lta: Number(form.lta)||0, medical: Number(form.medical)||0,
         pfApplicable: form.pfApplicable, pfRate: Number(form.pfRate)||12,
+        pfFixedAmount: Number(form.pfFixedAmount)||0,
         esiApplicable: form.esiApplicable,
+        esiEmpRate: String(form.esiEmpRate) !== '' && Number(form.esiEmpRate) >= 0 ? Number(form.esiEmpRate) : 0.75,
+        esiErRate: String(form.esiErRate) !== '' && Number(form.esiErRate) >= 0 ? Number(form.esiErRate) : 3.25,
+        ptOverride: Number(form.ptOverride),
+        tdsOverride: Number(form.tdsOverride)||0,
         inState: form.inState,
+      };
+
+      // Save payroll profile
+      await setDoc(doc(db, 'payrollProfiles', user.uid), {
+        ...savedProfile,
         updatedAt: serverTimestamp(), updatedBy: adminUid,
       });
 
@@ -647,6 +823,10 @@ function EditPayrollModal({
         status: form.status, notes: form.notes,
         updatedAt: serverTimestamp(), updatedBy: adminUid,
       });
+
+      // Immediately push the saved profile to parent so payslip re-renders
+      // without waiting for Firestore onSnapshot round-trip
+      onSaved?.(savedProfile);
 
       toast.success(`${user.name}'s payroll ${existingProfile ? 'updated' : 'configured'}!`);
       onClose();
@@ -717,8 +897,34 @@ function EditPayrollModal({
 
               {form.country === 'US' ? (
                 <>
-                  <div><FL label="Monthly Base Salary (USD)"/>
-                    <FInput value={form.baseSalary} onChange={set('baseSalary')} type="number" prefix="$" min={0}/></div>
+                  {/* Pay Basis selector */}
+                  <div>
+                    <FL label="Pay Basis"/>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['monthly','weekly','daily'] as PayBasis[]).map(b => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, payBasis: b }))}
+                          className={`py-2 rounded-xl border text-xs font-bold capitalize transition-all ${
+                            form.payBasis === b
+                              ? 'bg-[#1B2B5E] text-white border-[#1B2B5E]'
+                              : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <FL label={
+                      form.payBasis === 'weekly' ? 'Weekly Pay Rate (USD)' :
+                      form.payBasis === 'daily'  ? 'Daily Pay Rate (USD)'  :
+                      'Monthly Base Salary (USD)'
+                    }/>
+                    <FInput value={form.baseSalary} onChange={set('baseSalary')} type="number" prefix="$" min={0}/>
+                  </div>
                   <div><FL label="State"/>
                     <FSelect value={form.usState} onChange={set('usState')} opts={US_STATES}/></div>
                   <div className="grid grid-cols-2 gap-3">
@@ -726,6 +932,59 @@ function EditPayrollModal({
                       <FInput value={form.k401Pct} onChange={set('k401Pct')} type="number" min={0}/></div>
                     <div><FL label="Health Ins / mo"/>
                       <FInput value={form.healthIns} onChange={set('healthIns')} type="number" prefix="$" min={0}/></div>
+                  </div>
+
+                  {/* US Custom Tax Overrides — collapsible */}
+                  <div className="border border-dashed border-[#1B2B5E]/20 rounded-2xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowTaxes(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-left bg-[#1B2B5E]/5 hover:bg-[#1B2B5E]/10 transition-colors"
+                    >
+                      <span className="text-[11px] font-bold text-[#1B2B5E] uppercase tracking-wider flex items-center gap-1.5">
+                        <Calculator size={11}/>Custom Tax Settings
+                      </span>
+                      <ChevronDown size={13} className={`text-[#1B2B5E]/60 transition-transform ${showTaxes ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {showTaxes && (
+                      <div className="px-4 pb-4 pt-3 space-y-3 bg-white">
+                        <p className="text-[10px] text-gray-400">Override calculated defaults. Leave at 0 / -1 to use auto-calculated values.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <FL label="SS Rate (%)"/>
+                            <FInput value={form.ssRate} onChange={set('ssRate')} type="number" min={0} placeholder="6.2"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Default 6.2%</p>
+                          </div>
+                          <div>
+                            <FL label="Medicare Rate (%)"/>
+                            <FInput value={form.medicareRate} onChange={set('medicareRate')} type="number" min={0} placeholder="1.45"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Default 1.45%</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <FL label="Fed Tax Override ($)"/>
+                            <FInput value={form.fedTaxOverride < 0 ? '' : form.fedTaxOverride} onChange={v => setForm(f => ({ ...f, fedTaxOverride: v === '' ? -1 : Number(v) }))} type="number" prefix="$" min={0} placeholder="Auto-calculated"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Leave blank = auto-bracket calc · enter 0 to zero out</p>
+                          </div>
+                          <div>
+                            <FL label="State Tax Override ($)"/>
+                            <FInput value={form.stateTaxOverride < 0 ? '' : form.stateTaxOverride} onChange={v => setForm(f => ({ ...f, stateTaxOverride: v === '' ? -1 : Number(v) }))} type="number" prefix="$" min={0} placeholder="Auto-calculated"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Leave blank = use state rate · enter 0 to zero out</p>
+                          </div>
+                        </div>
+                        <div>
+                          <FL label="SDI Rate Override (%)"/>
+                          <FInput value={form.sdiRateOverride < 0 ? '' : form.sdiRateOverride} onChange={v => setForm(f => ({ ...f, sdiRateOverride: v === '' ? -1 : Number(v) }))} type="number" min={0} placeholder="State default"/>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Leave blank = use state SDI rate</p>
+                        </div>
+                        {(usCalc && (Number(form.fedTaxOverride) >= 0 || Number(form.stateTaxOverride) >= 0 || Number(form.ssRate) !== 6.2 || Number(form.medicareRate) !== 1.45 || Number(form.sdiRateOverride) >= 0)) && (
+                          <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-amber-700 font-semibold">Custom rates active — SS {usCalc.ssRatePct}% · Medicare {usCalc.medRatePct}%{usCalc.sdiRatePct > 0 ? ` · SDI ${usCalc.sdiRatePct}%` : ''}{Number(form.fedTaxOverride) >= 0 ? ` · Fed $${form.fedTaxOverride}` : ''}{Number(form.stateTaxOverride) >= 0 ? ` · State $${form.stateTaxOverride}` : ''}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -773,10 +1032,90 @@ function EditPayrollModal({
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
                     </div>
-                    {form.pfApplicable && (
+                    {form.pfApplicable && (Number(form.pfFixedAmount)||0) === 0 && (
                       <p className="text-[11px] text-gray-400 mt-1">
                         Employee + Employer each contribute {form.pfRate || 12}% of basic (₹{Math.round((Number(form.basic)||0) * ((Number(form.pfRate)||12)/100)).toLocaleString('en-IN')} /mo each)
                       </p>
+                    )}
+                  </div>
+
+                  {/* Fixed PF Amount (₹) — overrides % when > 0 */}
+                  <div className={`transition-all ${form.pfApplicable ? '' : 'opacity-40 pointer-events-none'}`}>
+                    <FL label="Fixed PF Amount (₹) — overrides % above when set"/>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">₹</span>
+                      <input
+                        type="number" min={0}
+                        value={form.pfApplicable ? (form.pfFixedAmount ?? 0) : 0}
+                        disabled={!form.pfApplicable}
+                        onChange={e => setForm(f => ({ ...f, pfFixedAmount: Number(e.target.value)||0 }))}
+                        placeholder="0"
+                        className="w-full border border-gray-200 rounded-xl py-2.5 pl-8 pr-3 text-sm font-medium text-gray-800
+                          outline-none focus:border-[#1B2B5E] focus:ring-2 focus:ring-[#1B2B5E]/10 transition-all
+                          disabled:bg-gray-50 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    {form.pfApplicable && (Number(form.pfFixedAmount)||0) > 0 && (
+                      <p className="text-[11px] text-[#1B2B5E] mt-1 font-medium">
+                        Fixed ₹{Number(form.pfFixedAmount).toLocaleString('en-IN')} /mo · overrides {form.pfRate || 12}% rate
+                      </p>
+                    )}
+                    {form.pfApplicable && (Number(form.pfFixedAmount)||0) === 0 && (
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Leave at ₹0 to use the % rate above
+                      </p>
+                    )}
+                  </div>
+
+                  {/* India Custom Tax Overrides — collapsible */}
+                  <div className="border border-dashed border-[#1B2B5E]/20 rounded-2xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowTaxes(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-left bg-[#1B2B5E]/5 hover:bg-[#1B2B5E]/10 transition-colors"
+                    >
+                      <span className="text-[11px] font-bold text-[#1B2B5E] uppercase tracking-wider flex items-center gap-1.5">
+                        <Calculator size={11}/>Custom Tax Settings
+                      </span>
+                      <ChevronDown size={13} className={`text-[#1B2B5E]/60 transition-transform ${showTaxes ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {showTaxes && (
+                      <div className="px-4 pb-4 pt-3 space-y-3 bg-white">
+                        <p className="text-[10px] text-gray-400">Override defaults. Leave at -1 / 0 to use auto-calculated values.</p>
+                        <div className={`grid grid-cols-2 gap-3 transition-all ${form.esiApplicable ? '' : 'opacity-40 pointer-events-none'}`}>
+                          <div>
+                            <FL label="ESI Employee Rate (%)"/>
+                            <FInput value={form.esiEmpRate} onChange={set('esiEmpRate')} type="number" min={0} placeholder="0.75"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Default 0.75%</p>
+                          </div>
+                          <div>
+                            <FL label="ESI Employer Rate (%)"/>
+                            <FInput value={form.esiErRate} onChange={set('esiErRate')} type="number" min={0} placeholder="3.25"/>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Default 3.25%</p>
+                          </div>
+                        </div>
+                        {!form.esiApplicable && <p className="text-[10px] text-amber-600 -mt-1">Enable ESI above to edit these rates</p>}
+                        <div>
+                          <FL label="Professional Tax Override (₹/mo)"/>
+                          <FInput value={form.ptOverride < 0 ? '' : form.ptOverride} onChange={v => setForm(f => ({ ...f, ptOverride: v === '' ? -1 : Number(v) }))} type="number" min={0} prefix="₹" placeholder={`State default (₹${IN_PT[form.inState] ?? 0})`}/>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Leave blank = use {form.inState} rate (₹{IN_PT[form.inState] ?? 0}/mo)</p>
+                        </div>
+                        <div>
+                          <FL label="TDS Override (₹/mo)"/>
+                          <FInput value={form.tdsOverride} onChange={set('tdsOverride')} type="number" prefix="₹" min={0} placeholder="0"/>
+                          <p className="text-[10px] text-gray-400 mt-0.5">0 = auto-calculate from income slab</p>
+                        </div>
+                        {(inCalc && (Number(form.tdsOverride) > 0 || Number(form.ptOverride) >= 0 || (form.esiApplicable && (Number(form.esiEmpRate) !== 0.75 || Number(form.esiErRate) !== 3.25)))) && (
+                          <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-amber-700 font-semibold">
+                              Custom rates active
+                              {form.esiApplicable ? ` · ESI Emp ${form.esiEmpRate}% / Er ${form.esiErRate}%` : ''}
+                              {form.ptOverride >= 0 ? ` · PT ₹${form.ptOverride}` : ''}
+                              {form.tdsOverride > 0 ? ` · TDS ₹${form.tdsOverride.toLocaleString('en-IN')}` : ''}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </>
@@ -850,7 +1189,7 @@ function EditPayrollModal({
                     </span>
                     <span className="text-xs font-black text-red-600">
                       -{form.country === 'US'
-                        ? fmtUSD(Math.round((Number(form.baseSalary)||0) / 22 * (Number(form.unpaidLeaveDays)||0)))
+                        ? fmtUSD(Math.round(lwpDailyRate(Number(form.baseSalary)||0, form.payBasis) * (Number(form.unpaidLeaveDays)||0)))
                         : fmtINR(Math.round((Number(form.basic)||0) / 26 * (Number(form.unpaidLeaveDays)||0)))}
                     </span>
                   </div>
@@ -865,29 +1204,47 @@ function EditPayrollModal({
               {/* Live Preview */}
               <div className="bg-[#1B2B5E]/5 border border-[#1B2B5E]/10 rounded-2xl p-4 space-y-2">
                 <p className="text-[11px] font-bold text-[#1B2B5E] uppercase tracking-wider">Live Preview</p>
-                {form.country === 'US' && usCalc && (
-                  <>
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">Base Salary</span><span className="font-semibold text-gray-700">{fmtUSD(Number(form.baseSalary)||0)}</span></div>
-                    {usCalc.lwpDeduction > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">LWP ({form.unpaidLeaveDays} days)</span><span className="text-red-500 font-semibold">-{fmtUSD(usCalc.lwpDeduction)}</span></div>}
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">Gross Pay</span><span className="font-bold text-gray-800">{fmtUSD(usCalc.gross)}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">Fed Tax</span><span className="text-red-400">-{fmtUSD(usCalc.fedTax)}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">State Tax ({form.usState})</span><span className={STATE_TAX[form.usState]===0?'text-green-600':'text-red-400'}>{STATE_TAX[form.usState]===0?'None':`-${fmtUSD(usCalc.stateTax)}`}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">FICA (SS + Medicare)</span><span className="text-red-400">-{fmtUSD(usCalc.ss + usCalc.medicare)}</span></div>
-                    {usCalc.sdi > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">{form.usState} SDI</span><span className="text-red-400">-{fmtUSD(usCalc.sdi)}</span></div>}
-                    <div className="flex justify-between text-xs"><span className="text-gray-500">401(k) + Health Ins</span><span className="text-red-400">-{fmtUSD(usCalc.k401 + usCalc.healthIns)}</span></div>
-                    <div className="flex justify-between text-sm border-t border-[#1B2B5E]/10 pt-2 mt-1">
-                      <span className="font-bold text-[#1B2B5E]">Net Pay</span>
-                      <span className="font-black text-[#1B2B5E] text-base">{fmtUSD(usCalc.net)}</span>
-                    </div>
-                  </>
-                )}
+                {form.country === 'US' && usCalc && (() => {
+                  const isPeriod = form.payBasis === 'weekly' || form.payBasis === 'daily';
+                  const pLwp      = isPeriod ? usCalc.slipLwp        : usCalc.lwpDeduction;
+                  const pGross    = isPeriod ? usCalc.slipGross       : usCalc.gross;
+                  const pFedTax   = isPeriod ? usCalc.slipFedTax      : usCalc.fedTax;
+                  const pStateTax = isPeriod ? usCalc.slipStateTax    : usCalc.stateTax;
+                  const pSS       = isPeriod ? usCalc.slipSS          : usCalc.ss;
+                  const pMedicare = isPeriod ? usCalc.slipMedicare    : usCalc.medicare;
+                  const pSdi      = isPeriod ? usCalc.slipSdi         : usCalc.sdi;
+                  const pK401     = isPeriod ? usCalc.slipK401        : usCalc.k401;
+                  const pHealth   = isPeriod ? usCalc.slipHealthIns   : usCalc.healthIns;
+                  const pNet      = isPeriod ? usCalc.slipNet         : usCalc.net;
+                  return (
+                    <>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">
+                          {form.payBasis === 'weekly' ? 'Weekly Rate' : form.payBasis === 'daily' ? 'Daily Rate' : 'Base Salary'}
+                        </span>
+                        <span className="font-semibold text-gray-700">{fmtUSD(Number(form.baseSalary)||0)}</span>
+                      </div>
+                      {pLwp > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">LWP ({form.unpaidLeaveDays} days)</span><span className="text-red-500 font-semibold">-{fmtUSD(pLwp)}</span></div>}
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Gross Pay</span><span className="font-bold text-gray-800">{fmtUSD(pGross)}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Fed Tax</span><span className="text-red-400">-{fmtUSD(pFedTax)}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">State Tax ({form.usState})</span><span className={pStateTax===0?'text-green-600':'text-red-400'}>{pStateTax===0?'None':`-${fmtUSD(pStateTax)}`}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">FICA (SS {usCalc.ssRatePct}% + Medicare {usCalc.medRatePct}%)</span><span className="text-red-400">-{fmtUSD(pSS + pMedicare)}</span></div>
+                      {pSdi > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">{form.usState} SDI</span><span className="text-red-400">-{fmtUSD(pSdi)}</span></div>}
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">401(k) + Health Ins</span><span className="text-red-400">-{fmtUSD(pK401 + pHealth)}</span></div>
+                      <div className="flex justify-between text-sm border-t border-[#1B2B5E]/10 pt-2 mt-1">
+                        <span className="font-bold text-[#1B2B5E]">Net Pay</span>
+                        <span className="font-black text-[#1B2B5E] text-base">{fmtUSD(pNet)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
                 {form.country === 'IN' && inCalc && (
                   <>
                     <div className="flex justify-between text-xs"><span className="text-gray-500">Basic + Allowances</span><span className="font-semibold text-gray-700">{fmtINR((Number(form.basic)||0) + (Number(form.hra)||0) + (Number(form.specialAllowance)||0) + Math.round((Number(form.lta)||0)/12) + (Number(form.medical)||0))}</span></div>
                     {inCalc.lwpDeduction > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">LWP ({form.unpaidLeaveDays} days)</span><span className="text-red-500 font-semibold">-{fmtINR(inCalc.lwpDeduction)}</span></div>}
                     <div className="flex justify-between text-xs"><span className="text-gray-500">Gross</span><span className="font-bold text-gray-800">{fmtINR(inCalc.gross)}</span></div>
-                    {form.pfApplicable && <div className="flex justify-between text-xs"><span className="text-gray-500">PF ({form.pfRate||12}%)</span><span className="text-red-400">-{fmtINR(inCalc.pf)}</span></div>}
-                    {inCalc.esi > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">ESI (0.75%)</span><span className="text-red-400">-{fmtINR(inCalc.esi)}</span></div>}
+                    {form.pfApplicable && <div className="flex justify-between text-xs"><span className="text-gray-500">{(Number(form.pfFixedAmount)||0) > 0 ? `PF (Fixed ₹${Number(form.pfFixedAmount).toLocaleString('en-IN')})` : `PF (${form.pfRate||12}%)`}</span><span className="text-red-400">-{fmtINR(inCalc.pf)}</span></div>}
+                    {inCalc.esi > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">ESI ({inCalc.esiEmpRatePct}%)</span><span className="text-red-400">-{fmtINR(inCalc.esi)}</span></div>}
                     {inCalc.pt > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">Prof. Tax</span><span className="text-red-400">-{fmtINR(inCalc.pt)}</span></div>}
                     {inCalc.tds > 0 && <div className="flex justify-between text-xs"><span className="text-gray-500">TDS</span><span className="text-red-400">-{fmtINR(inCalc.tds)}</span></div>}
                     <div className="flex justify-between text-sm border-t border-[#1B2B5E]/10 pt-2 mt-1">
@@ -1468,6 +1825,7 @@ export default function AdminPayrollPage() {
           defaultCountry={country}
           adminUid={currentUser.uid}
           onClose={() => setEditTarget(null)}
+          onSaved={(profile) => setProfiles(prev => new Map(prev).set(profile.uid, profile))}
         />
       )}
 

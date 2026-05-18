@@ -340,9 +340,9 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
             />
             <div className="w-px h-4 bg-white/20 flex-shrink-0" />
             <div className="flex flex-col">
-              <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipmate</span>
+              <span className="text-white font-black text-[17px] tracking-tight leading-none">Shipcube HR</span>
               <span className="text-[#F5C518]/60 text-[8px] font-semibold tracking-[0.08em] uppercase mt-0.5">
-                powered by Shipcube Ai
+                & Administration
               </span>
             </div>
           </div>

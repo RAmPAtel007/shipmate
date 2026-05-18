@@ -166,6 +166,30 @@ service cloud.firestore {
       );
     }
 
+    // ─── DOCUMENT SECTIONS ─────────────────────────────────────────
+    // Custom top-level folders created by HR/admin in the documents view.
+    // All signed-in users can read; only HR/admin can write.
+
+    match /document_sections/{sectionId} {
+      allow read: if isSignedIn();
+      allow create: if isHRorAdmin();
+      allow update: if isHRorAdmin();
+      allow delete: if isHRorAdmin();
+    }
+
+    // ─── DOCUMENT FOLDERS ──────────────────────────────────────────
+    // Custom subfolders created by admins inside document sections.
+    // All signed-in users can read (needed to browse folders in the
+    // employee documents view). Only HR/admin can create, rename, or
+    // delete subfolders.
+
+    match /document_folders/{folderId} {
+      allow read: if isSignedIn();
+      allow create: if isHRorAdmin();
+      allow update: if isHRorAdmin();
+      allow delete: if isHRorAdmin();
+    }
+
     // ─── NOTIFICATION PREFERENCES ──────────────────────────────────
 
     match /notificationPreferences/{uid} {

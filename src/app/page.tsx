@@ -155,7 +155,7 @@ export default function LandingPage() {
           />
           <div className="w-px h-4 bg-white/20" />
           <span className="text-white font-black text-sm sm:text-base tracking-tight">
-            Shipmate
+            Shipcube HR & Administration
           </span>
         </div>
 

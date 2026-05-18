@@ -198,6 +198,8 @@ export interface ShipmateDocument {
   size: number;           // bytes
   fileType: string;       // MIME type
   folder: DocumentFolder;
+  subfolderId?: string;   // ID from document_folders collection
+  linkedUserId?: string;  // uid of the employee this doc belongs to
   storagePath: string;
   downloadURL: string;
   uploadedBy: string;     // uid

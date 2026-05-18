@@ -36,7 +36,7 @@ export async function signInWithGoogle(): Promise<ShipmateUser> {
   if (!user.email?.endsWith(`@${ALLOWED_DOMAIN}`)) {
     await firebaseSignOut(auth);
     throw new Error(
-      `Access denied. Only @${ALLOWED_DOMAIN} accounts are authorized to use SHIPMATE.`
+      `Access denied. Only @${ALLOWED_DOMAIN} accounts are authorized to use Shipcube HR & Administration.`
     );
   }
 

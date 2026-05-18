@@ -218,7 +218,7 @@ export default function PayslipPage() {
 <div class="page">
   <div class="header">
     <div>
-      <div class="co">Shipmate</div>
+      <div class="co">Shipcube HR & Administration</div>
       <div class="co-sub">powered by Shipcube Ai</div>
     </div>
     <div class="month-badge">${monthLabel(selectedMonth)}</div>
@@ -252,7 +252,7 @@ export default function PayslipPage() {
       <span class="net-row-label">Net Pay</span>
       <span class="net-row-amount">${fmt(calc.net)}</span>
     </div>
-    <div class="footer">This is a system-generated payslip · Shipmate by Shipcube Ai</div>
+    <div class="footer">This is a system-generated payslip · Shipcube HR & Administration</div>
   </div>
 </div>
 <script>window.onload = () => window.print();</script>

@@ -83,8 +83,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           />
           <div className="w-px h-4 bg-white/20 flex-shrink-0" />
           <div className="flex flex-col">
-            <span className="text-white font-black text-sm tracking-tight leading-none">Shipmate</span>
-            <span className="text-[#F5C518]/60 text-[7.5px] font-medium tracking-wide mt-0.5">Admin Panel</span>
+            <span className="text-white font-black text-sm tracking-tight leading-none">Shipcube HR</span>
+            <span className="text-[#F5C518]/60 text-[7.5px] font-medium tracking-wide mt-0.5">& Administration</span>
           </div>
         </div>
         {/* Close button (mobile only) */}
@@ -200,7 +200,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
           <div className="flex items-center gap-2">
             <Shield size={14} className="text-[#F5C518]" strokeWidth={2.5} />
-            <span className="text-white font-black text-base tracking-tight">Shipmate Admin</span>
+            <span className="text-white font-black text-base tracking-tight">Shipcube HR & Administration</span>
           </div>
           <div className="w-9" />
         </header>

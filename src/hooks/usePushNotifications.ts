@@ -57,7 +57,7 @@ export function usePushNotifications(userId?: string) {
 
         // Handle foreground messages as toasts
         unsubscribe = onMessage(messaging, payload => {
-          const title = payload.notification?.title ?? 'Shipmate';
+          const title = payload.notification?.title ?? 'Shipcube HR & Administration';
           const body  = payload.notification?.body  ?? '';
           toast(`🔔 ${title}${body ? ` — ${body}` : ''}`, {
             duration: 5000,

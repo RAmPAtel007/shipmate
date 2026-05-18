@@ -229,7 +229,7 @@ function NotificationsSection() {
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
         <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700">
-          Notifications work best when Shipmate is added to your home screen as a PWA.
+          Notifications work best when Shipcube HR & Administration is added to your home screen as a PWA.
           On iOS, open in Safari → Share → Add to Home Screen.
         </p>
       </div>

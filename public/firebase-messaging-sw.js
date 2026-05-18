@@ -18,12 +18,12 @@ const messaging = firebase.messaging();
 
 // Background message handler — fires when app is NOT in foreground
 messaging.onBackgroundMessage(payload => {
-  const title = payload.notification?.title ?? payload.data?.title ?? 'Shipmate';
+  const title = payload.notification?.title ?? payload.data?.title ?? 'Shipcube HR & Administration';
   const body  = payload.notification?.body  ?? payload.data?.body  ?? 'You have a new notification';
   const icon  = '/icons/icon-192.png';
   const badge = '/icons/icon-96.png';
   const url   = payload.data?.url ?? '/home';
-  const tag   = payload.data?.tag ?? 'shipmate';
+  const tag   = payload.data?.tag ?? 'shipcube-hr';
 
   self.registration.showNotification(title, {
     body,
