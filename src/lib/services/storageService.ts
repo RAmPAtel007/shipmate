@@ -1,27 +1,24 @@
 /**
  * storageService.ts
  *
- * Upload strategy:
+ * All uploads use the Firebase Storage SDK (uploadBytesResumable) directly
+ * from the browser.
  *
- *  Files ≤ 10 MB  → REST multipart upload directly to firebasestorage.googleapis.com
- *                   Firebase manages CORS on this endpoint natively — no bucket
- *                   CORS configuration required, no session-URI redirect.
- *
- *  Files  > 10 MB → uploadBytesResumable (Firebase SDK resumable API)
- *                   The resumable session redirects to storage.googleapis.com,
- *                   which requires cors.json applied to the bucket.
- *
- * The old /api/upload proxy route is no longer used.
+ * The SDK is whitelisted by Firebase's own CORS policy on
+ * firebasestorage.googleapis.com.  The resumable session redirect goes to
+ * storage.googleapis.com — that endpoint requires cors.json to be applied to
+ * the GCS bucket (done via: gsutil cors set cors.json gs://BUCKET_NAME).
  */
 
-import { ref, getDownloadURL, deleteObject, uploadBytesResumable } from 'firebase/storage';
-import { auth, storage } from '@/lib/firebase/config';
+import {
+  ref, getDownloadURL, deleteObject, uploadBytesResumable,
+} from 'firebase/storage';
+import { storage } from '@/lib/firebase/config';
 
 // ── Size limits ────────────────────────────────────────────────────────────────
 
 const MAX_DOCUMENT_SIZE   = 500 * 1024 * 1024; // 500 MB
 const MAX_ATTACHMENT_SIZE =  50 * 1024 * 1024; //  50 MB
-const REST_THRESHOLD      =  10 * 1024 * 1024; //  10 MB — use REST API below this
 
 // ── Allowed MIME types ────────────────────────────────────────────────────────
 
@@ -84,91 +81,20 @@ function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
   }
 }
 
-// ── REST multipart upload (files ≤ 10 MB) ─────────────────────────────────────
+// ── Core upload ───────────────────────────────────────────────────────────────
 //
-// Uses uploadType=multipart on firebasestorage.googleapis.com — a single POST
-// that never redirects to storage.googleapis.com. Firebase has CORS open on
-// this endpoint for all browser origins, so no bucket CORS setup is needed.
+// Uses uploadBytesResumable which the Firebase SDK routes through
+// firebasestorage.googleapis.com (Firebase-managed CORS, always allowed).
+// The resumable data transfer then goes to storage.googleapis.com —
+// that hop requires cors.json applied to the GCS bucket via gsutil.
 
-async function restMultipartUpload(
+function directUpload(
   path: string,
   file: File,
-  contentType: string,
   onProgress?: (pct: number) => void,
 ): Promise<{ url: string; storagePath: string }> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Not signed in. Please refresh and try again.');
-  const token = await user.getIdToken();
-
-  const bucket       = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '';
-  const downloadToken = globalThis.crypto.randomUUID();
-  const boundary     = `fb${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
-
-  const metaJson = JSON.stringify({
-    contentType,
-    metadata: { firebaseStorageDownloadTokens: downloadToken },
-  });
-
-  const enc         = new TextEncoder();
-  const metaPart    = enc.encode(
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}`
-    + `\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
-  );
-  const closingPart = enc.encode(`\r\n--${boundary}--`);
-  const fileBuffer  = await file.arrayBuffer();
-
-  const body = new Uint8Array(metaPart.byteLength + fileBuffer.byteLength + closingPart.byteLength);
-  body.set(metaPart, 0);
-  body.set(new Uint8Array(fileBuffer), metaPart.byteLength);
-  body.set(closingPart, metaPart.byteLength + fileBuffer.byteLength);
-
-  onProgress?.(20);
-
-  const res = await fetch(
-    `https://firebasestorage.googleapis.com/v0/b/${bucket}/o`
-    + `?uploadType=multipart&name=${encodeURIComponent(path)}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    },
-  );
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => `HTTP ${res.status}`);
-    // Surface human-friendly messages for common errors
-    if (res.status === 403) {
-      throw new Error(
-        'Upload blocked by Firebase Storage rules. '
-        + 'Run: firebase deploy --only storage',
-      );
-    }
-    throw new Error(`Upload failed (${res.status}): ${text}`);
-  }
-
-  onProgress?.(100);
-
-  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o`
-            + `/${encodeURIComponent(path)}?alt=media&token=${downloadToken}`;
-
-  return { url, storagePath: path };
-}
-
-// ── Resumable upload (files > 10 MB) ─────────────────────────────────────────
-//
-// Uses Firebase SDK uploadBytesResumable with progress tracking.
-// Requires cors.json applied to the bucket (see project README).
-
-function resumableUpload(
-  path: string,
-  file: File,
-  contentType: string,
-  onProgress?: (pct: number) => void,
-): Promise<{ url: string; storagePath: string }> {
-  const storageRef = ref(storage, path);
+  const storageRef  = ref(storage, path);
+  const contentType = effectiveMime(file) || 'application/octet-stream';
 
   return new Promise((resolve, reject) => {
     const uploadTask = uploadBytesResumable(storageRef, file, { contentType });
@@ -176,8 +102,9 @@ function resumableUpload(
     const timeout = setTimeout(() => {
       uploadTask.cancel();
       reject(new Error(
-        'Upload timed out. Large-file uploads require CORS on the bucket — '
-        + 'run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
+        'Upload timed out. '
+        + 'Make sure CORS is applied to your bucket: '
+        + 'gsutil cors set cors.json gs://gemini-enterprise-481717.firebasestorage.app',
       ));
     }, 120_000);
 
@@ -191,12 +118,16 @@ function resumableUpload(
         clearTimeout(timeout);
         const friendly: Record<string, string> = {
           'storage/unauthorized':
-            'Upload blocked — run: firebase deploy --only storage',
-          'storage/canceled':             'Upload cancelled.',
+            'Upload blocked by Storage rules — run: firebase deploy --only storage',
+          'storage/canceled':
+            'Upload cancelled.',
           'storage/unknown':
-            'CORS error — run: gsutil cors set cors.json gs://YOUR_BUCKET_NAME',
-          'storage/quota-exceeded':       'Firebase Storage quota exceeded.',
-          'storage/retry-limit-exceeded': 'Upload failed after retries.',
+            'Network / CORS error — make sure CORS is applied: '
+            + 'gsutil cors set cors.json gs://gemini-enterprise-481717.firebasestorage.app',
+          'storage/quota-exceeded':
+            'Firebase Storage quota exceeded.',
+          'storage/retry-limit-exceeded':
+            'Upload failed after retries. Check your connection and CORS config.',
         };
         reject(new Error(friendly[error.code] ?? `Upload failed: ${error.message}`));
       },
@@ -214,19 +145,6 @@ function resumableUpload(
   });
 }
 
-// ── Unified upload dispatcher ─────────────────────────────────────────────────
-
-async function directUpload(
-  path: string,
-  file: File,
-  onProgress?: (pct: number) => void,
-): Promise<{ url: string; storagePath: string }> {
-  const contentType = effectiveMime(file) || 'application/octet-stream';
-  return file.size <= REST_THRESHOLD
-    ? restMultipartUpload(path, file, contentType, onProgress)
-    : resumableUpload(path, file, contentType, onProgress);
-}
-
 // ── Public service ────────────────────────────────────────────────────────────
 
 export const storageService = {
@@ -236,7 +154,6 @@ export const storageService = {
   async uploadAvatar(uid: string, file: File): Promise<string> {
     if (!file.type.startsWith('image/')) throw new Error('Avatar must be an image.');
     if (file.size > 2 * 1024 * 1024) throw new Error('Avatar must be under 2 MB.');
-
     const compressed = await storageService.compressImage(file, 0.5);
     const path = `avatars/${uid}/profile.jpg`;
     const { url } = await directUpload(path, compressed);
@@ -259,22 +176,14 @@ export const storageService = {
   // ── Long message text ───────────────────────────────────────────────────────
 
   async uploadLongMessage(channelId: string, messageId: string, content: string): Promise<string> {
-    const user = auth.currentUser;
-    if (!user) throw new Error('Not signed in.');
-    const token = await user.getIdToken();
-    const path  = `long-messages/${channelId}/${messageId}/content.md`;
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '';
-
-    const res = await fetch(
-      `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(path)}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/markdown' },
-        body: content,
-      },
+    const path = `long-messages/${channelId}/${messageId}/content.md`;
+    const storageRef = ref(storage, path);
+    const { url: _url, storagePath } = await directUpload(
+      path,
+      new File([content], 'content.md', { type: 'text/markdown' }),
     );
-    if (!res.ok) throw new Error(`Failed to store long message (${res.status})`);
-    return path;
+    void _url;
+    return storagePath;
   },
 
   async getLongMessageContent(storagePath: string): Promise<string> {
