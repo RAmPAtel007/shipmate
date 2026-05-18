@@ -1,24 +1,25 @@
 /**
  * storageService.ts
  *
- * All uploads go through /api/upload (server-side proxy) to avoid Firebase
- * Storage CORS restrictions when running in the browser.
+ * All uploads use the Firebase Storage SDK (uploadBytesResumable / uploadBytes)
+ * directly from the browser. The Firebase SDK handles authentication and CORS
+ * automatically — no server-side proxy is required.
  *
- * Files larger than the Edge function limit (~4 MB) fall back to a direct
- * Firebase Storage upload via uploadBytesResumable, which requires CORS to
- * be configured on the bucket (see cors.json in the project root).
+ * This works for both local development and static deployments (Firebase
+ * Hosting with `next export`) because there is no server dependency.
+ *
+ * The /api/upload proxy route still exists but is no longer used by this
+ * service. It can be removed in a future cleanup.
  */
 
 import {
   ref, getDownloadURL, deleteObject,
   uploadBytes, uploadBytesResumable,
 } from 'firebase/storage';
-import { auth, storage } from '@/lib/firebase/config';
+import { storage } from '@/lib/firebase/config';
 
 // ── Size limits ────────────────────────────────────────────────────────────────
 
-/** Files at or below this threshold are uploaded via the /api/upload proxy. */
-const PROXY_THRESHOLD    =   4 * 1024 * 1024; //  4 MB
 const MAX_DOCUMENT_SIZE  = 500 * 1024 * 1024; // 500 MB
 const MAX_ATTACHMENT_SIZE =  50 * 1024 * 1024; // 50 MB
 
@@ -54,46 +55,6 @@ function validateFile(file: File, maxBytes = MAX_DOCUMENT_SIZE) {
   if (!ALLOWED_TYPES.has(file.type)) {
     throw new Error(`File type not supported: ${file.type || '(unknown)'}`);
   }
-}
-
-/** Get the current user's Firebase Auth ID token (required for server proxy). */
-async function getIdToken(): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Not signed in. Please refresh and try again.');
-  return user.getIdToken();
-}
-
-/**
- * Upload via the /api/upload server-side proxy.
- * No CORS configuration required — the browser only talks to the same origin.
- */
-async function proxyUpload(
-  path: string,
-  file: File,
-  onProgress?: (pct: number) => void,
-): Promise<{ url: string; storagePath: string }> {
-  const token = await getIdToken();
-
-  const form = new FormData();
-  form.append('file', file);
-  form.append('path', path);
-  form.append('token', token);
-
-  // Simulate indeterminate progress while waiting for the server
-  onProgress?.(15);
-
-  const res = await fetch('/api/upload', { method: 'POST', body: form });
-
-  onProgress?.(90);
-
-  if (!res.ok) {
-    const payload = await res.json().catch(() => ({ error: 'Upload failed' })) as { error?: string };
-    throw new Error(payload.error ?? `Upload failed (HTTP ${res.status})`);
-  }
-
-  const data = await res.json() as { url: string; storagePath: string };
-  onProgress?.(100);
-  return { url: data.url, storagePath: data.storagePath };
 }
 
 /**
@@ -164,10 +125,9 @@ export const storageService = {
 
     const compressed = await storageService.compressImage(file, 0.5);
     const path = `avatars/${uid}/profile.jpg`;
-
-    // Avatars are always small — use the proxy
-    const { url } = await proxyUpload(path, compressed);
-    return url;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, compressed, { contentType: 'image/jpeg' });
+    return getDownloadURL(storageRef);
   },
 
   // ── Chat attachment ─────────────────────────────────────────────────────────
@@ -180,10 +140,8 @@ export const storageService = {
     validateFile(file, MAX_ATTACHMENT_SIZE);
     const path = `chat-attachments/${channelId}/${messageId}/${file.name}`;
 
-    // Small files → proxy (no CORS needed); large → direct (requires CORS)
-    const { url, storagePath } = file.size <= PROXY_THRESHOLD
-      ? await proxyUpload(path, file)
-      : await directUpload(path, file);
+    // Use Firebase SDK directly — works in browser with no proxy or CORS setup needed.
+    const { url, storagePath } = await directUpload(path, file);
 
     return { url, name: file.name, size: file.size, type: file.type, storagePath };
   },
@@ -216,10 +174,8 @@ export const storageService = {
     validateFile(file);
     const path = `documents/${folder}/${Date.now()}_${file.name}`;
 
-    // Small files → proxy; large files → direct (requires CORS on the bucket)
-    return file.size <= PROXY_THRESHOLD
-      ? proxyUpload(path, file, onProgress)
-      : directUpload(path, file, onProgress);
+    // Use Firebase SDK directly — works in browser with no proxy or CORS setup needed.
+    return directUpload(path, file, onProgress);
   },
 
   // ── Delete ──────────────────────────────────────────────────────────────────
