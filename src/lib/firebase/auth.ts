@@ -1,11 +1,15 @@
 import {
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   type User,
 } from 'firebase/auth';
+
+export { getRedirectResult };
 import {
   doc,
   getDoc,
@@ -24,23 +28,58 @@ const ADMIN_EMAILS = ['abhishek@shipcube.com', 'admin@shipcube.com'];
 
 const ALLOWED_DOMAIN = 'shipcube.com';
 
-/** Sign in with Google. Throws if email is not @shipcube.com */
-export async function signInWithGoogle(): Promise<ShipmateUser> {
+/** Sign in with Google. Throws if email is not @shipcube.com.
+ *  Tries signInWithPopup first; falls back to signInWithRedirect if the
+ *  browser blocks the popup (common on mobile and in strict browser settings).
+ *  When redirect is used this function returns null — the result is picked up
+ *  by handleGoogleRedirectResult() after the page reloads. */
+export async function signInWithGoogle(): Promise<ShipmateUser | null> {
   const provider = new GoogleAuthProvider();
   // Hint the Google account picker to @shipcube.com accounts
   provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
 
-  const result = await signInWithPopup(auth, provider);
-  const user = result.user;
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
 
-  if (!user.email?.endsWith(`@${ALLOWED_DOMAIN}`)) {
-    await firebaseSignOut(auth);
-    throw new Error(
-      `Access denied. Only @${ALLOWED_DOMAIN} accounts are authorized to use Shipcube HR & Administration.`
-    );
+    if (!user.email?.endsWith(`@${ALLOWED_DOMAIN}`)) {
+      await firebaseSignOut(auth);
+      throw new Error(
+        `Access denied. Only @${ALLOWED_DOMAIN} accounts are authorized to use Shipcube HR & Administration.`
+      );
+    }
+
+    return createOrGetUserProfile(user);
+  } catch (err: any) {
+    // Browser blocked the popup — silently fall through to redirect flow
+    if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
+      await signInWithRedirect(auth, provider);
+      return null; // page will reload; result handled by handleGoogleRedirectResult
+    }
+    throw err;
   }
+}
 
-  return createOrGetUserProfile(user);
+/** Call on app startup — processes the result of a signInWithRedirect flow. */
+export async function handleGoogleRedirectResult(): Promise<ShipmateUser | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result) return null;
+
+    const user = result.user;
+    if (!user.email?.endsWith(`@${ALLOWED_DOMAIN}`)) {
+      await firebaseSignOut(auth);
+      throw new Error(
+        `Access denied. Only @${ALLOWED_DOMAIN} accounts are authorized to use Shipcube HR & Administration.`
+      );
+    }
+
+    return createOrGetUserProfile(user);
+  } catch (err: any) {
+    // No pending redirect or browser doesn't support it — safe to ignore
+    if (err?.code === 'auth/no-auth-event') return null;
+    throw err;
+  }
 }
 
 /** Sign in with email + password — admin accounts only */

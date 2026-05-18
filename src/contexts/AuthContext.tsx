@@ -8,6 +8,7 @@ import {
   signInWithEmail,
   signOut,
   getUserProfile,
+  handleGoogleRedirectResult,
 } from '@/lib/firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -48,6 +49,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   // Holds the live Firestore listener for the logged-in user's profile doc
   const profileUnsubRef = useRef<(() => void) | null>(null);
+
+  // On mount, process a pending Google redirect result (mobile / popup-blocked flow)
+  useEffect(() => {
+    handleGoogleRedirectResult().then(user => {
+      if (user) setCurrentUser(user);
+    }).catch(err => {
+      const msg = err?.message ?? 'Sign in failed after redirect.';
+      setError(msg);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -140,7 +152,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       const user = await signInWithGoogle();
-      setCurrentUser(user);
+      // null means redirect was triggered — page will reload, result handled on mount
+      if (user) setCurrentUser(user);
     } catch (err: any) {
       const msg = err?.message ?? 'Sign in failed. Please try again.';
       setError(msg);

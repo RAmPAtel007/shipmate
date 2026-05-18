@@ -1380,7 +1380,7 @@ export default function AdminUsersPage() {
             <>
               {/* Filters */}
               <div className="flex items-center gap-3 mb-5 flex-wrap">
-                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 w-64">
+                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 w-full sm:w-64">
                   <Search size={14} className="text-gray-400 flex-shrink-0"/>
                   <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                     placeholder="Search name, role, or ID…"
@@ -1632,7 +1632,7 @@ export default function AdminUsersPage() {
 
       {/* ── Detail Panel ── */}
       {selectedUser && (
-        <div className="w-full max-w-[420px] flex-shrink-0 h-full overflow-hidden border-l border-gray-100">
+        <div className="fixed inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:max-w-[420px] flex-shrink-0 h-full overflow-hidden border-l border-gray-100 bg-white">
           <EmployeeDetailPanel
             user={selectedUser}
             users={users}

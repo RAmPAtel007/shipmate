@@ -198,9 +198,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#F5C518] rounded-full" />
             )}
           </button>
-          <div className="flex items-center gap-2">
-            <Shield size={14} className="text-[#F5C518]" strokeWidth={2.5} />
-            <span className="text-white font-black text-base tracking-tight">Shipcube HR & Administration</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <Shield size={14} className="text-[#F5C518] flex-shrink-0" strokeWidth={2.5} />
+            <span className="text-white font-black text-sm tracking-tight truncate">Shipcube Admin</span>
           </div>
           <div className="w-9" />
         </header>

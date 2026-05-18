@@ -189,7 +189,7 @@ function TeamCalendar() {
           </div>
           <div className="flex items-center gap-3">
             {/* Legend */}
-            <div className="flex items-center gap-3 mr-4">
+            <div className="hidden sm:flex items-center gap-3 mr-4">
               {[
                 { color: 'bg-[#1B2B5E]', label: 'Paid / Earned' },
                 { color: 'bg-[#F5C518]',  label: 'Casual / WFH' },
@@ -216,7 +216,9 @@ function TeamCalendar() {
           </div>
         </div>
 
-        {/* Day headers */}
+        {/* Day headers + weeks — overflow scroll on small screens */}
+        <div className="overflow-x-auto -mx-5 px-5">
+        <div className="min-w-[420px]">
         <div className="grid grid-cols-7 border-b border-gray-100 mt-4">
           {DAYS.map(d => (
             <div key={d} className="py-2 text-center text-[11px] font-bold text-gray-400 tracking-wider">
@@ -289,6 +291,8 @@ function TeamCalendar() {
             ))}
           </div>
         )}
+        </div>{/* min-w wrapper */}
+        </div>{/* overflow-x-auto wrapper */}
       </div>
 
       {/* Upcoming leaves list */}
@@ -639,8 +643,8 @@ export default function AdminLeavesPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-gray-100">
                 {['Employee','Type','Dates','Status','Reason / Response',''].map(h => (
@@ -731,7 +735,7 @@ export default function AdminLeavesPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto h-full overflow-y-auto">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto h-full overflow-y-auto">
 
       {/* ── Page header ── */}
       <div className="flex items-start justify-between mb-6">
@@ -744,7 +748,7 @@ export default function AdminLeavesPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <div className="flex items-center gap-1 mb-6 border-b border-gray-100">
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-100 overflow-x-auto">
         {TABS.map(tab => (
           <button
             key={tab.id}

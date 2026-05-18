@@ -1762,7 +1762,7 @@ export default function AdminPayrollPage() {
                   </div>
                 ))}
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mt-4 mb-2">State Income Tax (all 50 + DC)</p>
-                <div className="grid grid-cols-6 gap-1">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1">
                   {Object.entries(STATE_TAX).sort((a,b)=>a[0].localeCompare(b[0])).map(([s,r]) => (
                     <div key={s} className={`rounded-lg p-1.5 text-center ${r===0?'bg-green-50':'bg-gray-50'}`}>
                       <p className="text-[10px] font-black text-gray-700">{s}</p>

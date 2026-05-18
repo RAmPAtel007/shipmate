@@ -374,18 +374,31 @@ function UploadModal({
 }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ name: string; pct: number; current: number; total: number } | null>(null);
+  // Files staged for upload — shown in preview list before the user confirms
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
-  const onDrop = useCallback(async (accepted: File[], rejected: { file: File; errors: { message: string }[] }[]) => {
+  // onDrop just stages files — does NOT upload yet
+  const onDrop = useCallback((accepted: File[], rejected: { file: File; errors: { message: string }[] }[]) => {
     if (rejected.length) {
       toast.error(`${rejected[0].file.name}: ${rejected[0].errors?.[0]?.message ?? 'rejected'}`);
     }
     if (!accepted.length) return;
+    setStagedFiles(prev => {
+      // Deduplicate by name
+      const names = new Set(prev.map(f => f.name));
+      return [...prev, ...accepted.filter(f => !names.has(f.name))];
+    });
+  }, []);
+
+  // Actual upload — triggered only when the user clicks "Upload"
+  const handleUpload = useCallback(async () => {
+    if (!stagedFiles.length) return;
     setUploading(true);
     let ok = 0;
-    for (let i = 0; i < accepted.length; i++) {
-      const file = accepted[i];
+    for (let i = 0; i < stagedFiles.length; i++) {
+      const file = stagedFiles[i];
       try {
-        setProgress({ name: file.name, pct: 0, current: i + 1, total: accepted.length });
+        setProgress({ name: file.name, pct: 0, current: i + 1, total: stagedFiles.length });
         const { url, storagePath } = await storageService.uploadDocument(
           folderId, file, userId, pct => setProgress(p => p ? { ...p, pct } : null),
         );
@@ -413,7 +426,7 @@ function UploadModal({
     setUploading(false);
     setProgress(null);
     if (ok) { toast.success(`${ok} file${ok > 1 ? 's' : ''} uploaded`); onUploaded(); onClose(); }
-  }, [folderId, subfolderId, userId, uploaderName, onUploaded, onClose]);
+  }, [stagedFiles, folderId, subfolderId, userId, uploaderName, onUploaded, onClose]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -432,50 +445,115 @@ function UploadModal({
   });
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={!uploading ? onClose : undefined}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-gray-900">Upload files</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Uploading to: <span className="font-medium text-gray-600">{folderId}</span>
+              To: <span className="font-medium text-gray-600 capitalize">{folderId.replace(/-/g, ' ')}</span>
               {subfolderId && <span className="text-gray-400"> / subfolder</span>}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+          {!uploading && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+          )}
         </div>
-        <div className="p-5">
-          <div
-            {...getRootProps()}
-            className={cn(
-              'border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer',
-              isDragActive ? 'border-[#1B2B5E] bg-[#1B2B5E]/5' : 'border-gray-200 hover:border-[#1B2B5E]/50 hover:bg-gray-50',
-              uploading && 'cursor-default',
-            )}
-          >
-            <input {...getInputProps()} />
-            {uploading && progress ? (
-              <div className="flex flex-col items-center gap-3">
-                <p className="text-sm font-medium text-gray-700 truncate max-w-xs">{progress.name}</p>
-                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#1B2B5E] rounded-full transition-all" style={{ width: `${progress.pct}%` }} />
-                </div>
-                <p className="text-xs text-gray-400">
-                  {progress.total > 1 ? `File ${progress.current} of ${progress.total} · ` : ''}{progress.pct}%
-                </p>
-              </div>
-            ) : (
+
+        <div className="p-5 space-y-4">
+
+          {/* Drop zone — always visible unless actively uploading */}
+          {!uploading && (
+            <div
+              {...getRootProps()}
+              className={cn(
+                'border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer',
+                isDragActive ? 'border-[#1B2B5E] bg-[#1B2B5E]/5' : 'border-gray-200 hover:border-[#1B2B5E]/50 hover:bg-gray-50',
+              )}
+            >
+              <input {...getInputProps()} />
               <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 bg-[#1B2B5E]/8 rounded-2xl flex items-center justify-center mb-1">
-                  <Upload size={22} className="text-[#1B2B5E]" />
+                <div className="w-10 h-10 bg-[#1B2B5E]/8 rounded-xl flex items-center justify-center">
+                  <Upload size={18} className="text-[#1B2B5E]" />
                 </div>
                 <p className="text-sm font-semibold text-gray-800">
                   {isDragActive ? 'Drop files here' : 'Drag & drop or click to browse'}
                 </p>
                 <p className="text-xs text-gray-400">PDF, Word, Excel, Images, ZIP and more</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Upload progress bar */}
+          {uploading && progress && (
+            <div className="rounded-xl border border-gray-100 p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span className="truncate max-w-[60%] font-medium text-gray-700">{progress.name}</span>
+                <span>{progress.total > 1 ? `${progress.current}/${progress.total} · ` : ''}{progress.pct}%</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#1B2B5E] rounded-full transition-all duration-300"
+                  style={{ width: `${progress.pct}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-400 text-center">Uploading… please wait</p>
+            </div>
+          )}
+
+          {/* Staged files list */}
+          {stagedFiles.length > 0 && !uploading && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Ready to upload ({stagedFiles.length})
+              </p>
+              <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
+                {stagedFiles.map((file, idx) => {
+                  const style = getExtStyle(file.type);
+                  const ext   = getExtLabel(file.name, file.type);
+                  return (
+                    <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white">
+                      <div className={`w-8 h-8 rounded-lg ${style.bg} flex items-center justify-center flex-shrink-0`}>
+                        <span className={`text-[9px] font-black ${style.text}`}>{ext}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
+                        <p className="text-xs text-gray-400">{formatFileSize(file.size)}</p>
+                      </div>
+                      <button
+                        onClick={() => setStagedFiles(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+                      >
+                        <X size={14}/>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {!uploading && (
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={stagedFiles.length === 0}
+                className="flex-1 py-2.5 rounded-xl bg-[#1B2B5E] text-white text-sm font-bold hover:bg-[#2D4080] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                <Upload size={14}/>
+                Upload {stagedFiles.length > 0 ? `(${stagedFiles.length})` : ''}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

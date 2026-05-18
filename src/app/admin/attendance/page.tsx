@@ -334,17 +334,17 @@ export default function AdminAttendancePage() {
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+      <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6 space-y-5">
 
         {/* ── Header ── */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-black text-gray-900">Attendance</h1>
             <p className="text-sm text-gray-400 mt-0.5">
               {dateLabel} · Live ledger refreshed {refreshLabel} ago
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={exportCSV}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
@@ -360,7 +360,7 @@ export default function AdminAttendancePage() {
         </div>
 
         {/* ── Summary cards ── */}
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {(['on_time', 'late', 'remote', 'on_leave', 'missing'] as AttendanceStatus[]).map(s => {
             const cfg    = STATUS_CFG[s];
             const active = statusFilter === s;
