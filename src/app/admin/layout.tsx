@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useUnreadCounts } from '@/hooks/useUnreadCounts';
 import { useUnreadAnnouncements } from '@/hooks/useUnreadAnnouncements';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 const NAV = [
   { icon: LayoutDashboard, label: 'Dashboard',     href: '/admin',                key: 'dashboard' },
@@ -31,6 +32,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Register FCM push token for admin users (same as employee layout)
+  usePushNotifications(currentUser?.uid);
 
   // Live notification counts
   const { total: unreadChat } = useUnreadCounts();

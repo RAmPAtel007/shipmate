@@ -857,16 +857,20 @@ function NewDMPicker({
 }
 
 function AdminChatSidebar({
-  channels, activeId, currentUserId, unreadByChannel, userMap, photoMap, onSelect, onNewDM,
+  channels, activeId, currentUserId, unreadByChannel, userMap, photoMap, onSelect, onStartDM,
 }: {
   channels: Channel[]; activeId: string | null; currentUserId: string;
   unreadByChannel: Record<string, number>; userMap: Map<string, string>;
   photoMap?: Map<string, string | null>; onSelect: (id: string) => void;
-  onNewDM: () => void;
+  onStartDM: (uid: string, name: string) => void;
 }) {
   const publicChannels = channels.filter(c => c.type === 'public');
-  const deptChannels = channels.filter(c => c.type === 'department');
-  const dms = channels.filter(c => c.type === 'dm');
+  const deptChannels   = channels.filter(c => c.type === 'department');
+
+  // Build sorted list of all team members (excluding self)
+  const allMembers = Array.from(userMap.entries())
+    .filter(([uid]) => uid !== currentUserId)
+    .sort(([, a], [, b]) => (a ?? '').localeCompare(b ?? ''));
 
   return (
     <div className="w-56 bg-white border-r border-gray-100 flex flex-col h-full flex-shrink-0">
@@ -904,36 +908,60 @@ function AdminChatSidebar({
           </section>
         )}
 
-        {/* Direct Messages — always visible, with + to start new DM */}
+        {/* Direct Messages — ALL team members listed, click to open/create DM */}
         <section>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Direct Messages</span>
-            <button
-              onClick={onNewDM}
-              className="text-gray-400 hover:text-[#1B2B5E] transition-colors"
-              title="New direct message"
-            >
-              <Plus size={13} />
-            </button>
+          <div className="px-2 mb-1">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              Direct Messages
+            </span>
           </div>
-          {dms.length > 0 ? (
-            <div className="space-y-0.5">
-              {dms.map(ch => (
-                <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} userMap={userMap} photoMap={photoMap} onSelect={() => onSelect(ch.id)} />
-              ))}
-            </div>
+          {allMembers.length === 0 ? (
+            <p className="text-xs text-gray-400 px-2 py-2">Loading members…</p>
           ) : (
-            <button
-              onClick={onNewDM}
-              className="w-full flex items-center gap-2 px-2 py-2 rounded-xl text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-            >
-              <Plus size={11}/>Start a direct message
-            </button>
+            <div className="space-y-0.5">
+              {allMembers.map(([uid, name]) => {
+                // Check if a DM channel with this person already exists
+                const existingDm = channels.find(
+                  c => c.type === 'dm' && c.members.includes(uid) && c.members.includes(currentUserId)
+                );
+                const isActive = existingDm ? existingDm.id === activeId : false;
+                const hasUnread = existingDm ? (unreadByChannel[existingDm.id] ?? 0) > 0 : false;
+                const photo = photoMap?.get(uid) ?? null;
+                const initials = (name ?? '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+
+                return (
+                  <button
+                    key={uid}
+                    onClick={() => existingDm ? onSelect(existingDm.id) : onStartDM(uid, name ?? uid)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all text-left ${
+                      isActive
+                        ? 'bg-[#1B2B5E] text-white font-semibold'
+                        : hasUnread
+                          ? 'text-gray-900 font-bold hover:bg-gray-50'
+                          : 'text-gray-500 font-medium hover:bg-gray-50 hover:text-gray-800'
+                    }`}
+                  >
+                    {photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photo} alt={name} className="w-5 h-5 rounded-full flex-shrink-0 object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                        {initials}
+                      </div>
+                    )}
+                    <span className="flex-1 truncate">{name}</span>
+                    {hasUnread && !isActive && (
+                      <span className="w-2 h-2 rounded-full bg-[#F5C518] flex-shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </section>
 
-        {channels.length === 0 && (
-          <p className="text-xs text-gray-400 px-3 py-6 text-center">Loading channels…</p>
+        {channels.length === 0 && userMap.size === 0 && (
+          <p className="text-xs text-gray-400 px-3 py-6 text-center">Loading…</p>
         )}
       </div>
     </div>
@@ -1088,7 +1116,7 @@ function AdminChatInner() {
   const [loaded, setLoaded] = useState(false);
   const [userMap, setUserMap] = useState<Map<string, string>>(new Map());
   const [photoMap, setPhotoMap] = useState<Map<string, string | null>>(new Map());
-  const [showNewDM, setShowNewDM] = useState(false);
+  const [showNewDM, setShowNewDM] = useState(false); // kept for legacy; sidebar now lists all members directly
   const initialSelectDone = useRef(false);
   const { byChannel: unreadByChannel } = useUnreadCounts();
 
@@ -1118,6 +1146,10 @@ function AdminChatInner() {
       const accessible = allChannels.filter(ch => {
         if (ch.isArchived) return false;
         if (ch.type === 'public') return true;
+        // DM privacy: even admins only see DMs they are a participant in.
+        // Employee-to-employee DMs must remain private.
+        if (ch.type === 'dm') return ch.members.includes(currentUser.uid);
+        // Non-DM channels (department, private): admins can see all for moderation
         if (isAdmin) return true;
         if (ch.members.includes(currentUser.uid)) return true;
         if (ch.type === 'department' && ch.departmentId === currentUser.department) return true;
@@ -1197,7 +1229,7 @@ function AdminChatInner() {
           userMap={userMap}
           photoMap={photoMap}
           onSelect={handleSelectChannel}
-          onNewDM={() => setShowNewDM(true)}
+          onStartDM={handleStartDM}
         />
       </div>
 

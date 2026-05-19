@@ -80,7 +80,8 @@ export const userService = {
     return onSnapshot(collection(db, USERS), snap => {
       const users = snap.docs
         .map(d => mapUser(d.id, d.data()))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        // Guard against docs where name is undefined/null — localeCompare throws on undefined
+        .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
       callback(users);
     });
   },

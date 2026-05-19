@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { Avatar, Badge, RoleBadge, Button } from '@/components/ui';
 import { userService } from '@/lib/services/userService';
 import { storageService } from '@/lib/services/storageService';
@@ -180,18 +181,19 @@ function ProfileSection() {
 // ── Notification section ──────────────────────────────────────────────────────
 
 function NotificationsSection() {
-  const [pushEnabled, setPushEnabled] = useState(
-    typeof window !== 'undefined' && Notification.permission === 'granted'
-  );
+  const { currentUser } = useAuth();
+  // Using the hook registers the FCM token automatically once permission is granted.
+  // Calling requestPermission() from here (rather than Notification.requestPermission()
+  // directly) ensures the token is saved to Firestore so the Cloud Function can reach
+  // this device for push notifications.
+  const { permission, requestPermission } = usePushNotifications(currentUser?.uid);
+  const pushEnabled = permission === 'granted';
   const [requesting, setRequesting] = useState(false);
 
   async function enablePush() {
     setRequesting(true);
     try {
-      const perm = await Notification.requestPermission();
-      setPushEnabled(perm === 'granted');
-      if (perm === 'granted') toast.success('Push notifications enabled');
-      else toast.error('Permission denied — enable in browser settings');
+      await requestPermission();
     } finally {
       setRequesting(false);
     }
