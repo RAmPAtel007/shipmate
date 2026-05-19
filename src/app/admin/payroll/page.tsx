@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   DollarSign, Download, CheckCircle2, ChevronRight, X, FileText,
   TrendingUp, Search, Printer, Building2, Calculator, Edit2, Plus,
@@ -1367,44 +1368,74 @@ export default function AdminPayrollPage() {
     )
   );
 
-  // ── Export CSV ──────────────────────────────────────────────────────────────
-  function downloadPayrollCSV() {
-    let csv = '';
+  // ── Export Excel (.xlsx) ────────────────────────────────────────────────────
+  function downloadPayrollExcel() {
+    const num = (v: number | undefined | null) =>
+      isFinite(v as number) ? (v ?? 0) : 0;
+    const str = (v: string | undefined | null) =>
+      String(v ?? '').replace(/-/g, ' ');
+
+    let dataRows: (string | number)[][] = [];
+    let headers: string[] = [];
+
     if (country === 'US') {
-      csv = [
-        'Employee,Email,Department,State,Base Salary,OT Hours,OT Pay,Adjustments,Gross,Fed Tax,State Tax,SS,Medicare,SDI,401k,Health Ins,Total Deductions,Net Pay,Status',
-        ...countryEmps.map(({ user, profile, entry }) => {
-          const c = calcUSPayroll(profile, entry);
-          return [
-            `"${user.name}"`, user.email, user.department, profile.usState,
-            profile.baseSalary, entry.otHours, entry.otPay, entry.adjustments,
-            c.gross, c.fedTax, c.stateTax, c.ss, c.medicare, c.sdi,
-            c.k401, c.healthIns, c.ded, c.net, entry.status,
-          ].join(',');
-        }),
-      ].join('\n');
+      headers = [
+        'Employee', 'Email', 'Department', 'State', 'Pay Basis', 'Base Salary',
+        'OT Hours', 'OT Pay', 'Adjustments',
+        'Gross Pay', 'Federal Tax', 'State Tax', 'Social Security', 'Medicare', 'SDI',
+        '401k', 'Health Insurance', 'Total Deductions', 'Net Pay', 'Status',
+      ];
+      dataRows = countryEmps.map(({ user, profile, entry }) => {
+        const c = calcUSPayroll(profile, entry);
+        return [
+          str(user.name), str(user.email), str(user.department),
+          str(profile.usState), str(profile.payBasis ?? 'monthly'),
+          num(profile.baseSalary),
+          num(entry.otHours), num(entry.otPay), num(entry.adjustments),
+          num(c.gross), num(c.fedTax), num(c.stateTax),
+          num(c.ss), num(c.medicare), num(c.sdi),
+          num(c.k401), num(c.healthIns), num(c.ded), num(c.net),
+          str(entry.status ?? 'Pending'),
+        ];
+      });
     } else {
-      csv = [
-        'Employee,Email,Department,State,Basic,HRA,Special Allowance,LTA/mo,Medical,OT Pay,Adjustments,Gross,PF,ESI,Prof Tax,TDS,Total Deductions,Net Pay,Status',
-        ...countryEmps.map(({ user, profile, entry }) => {
-          const c = calcINPayroll(profile, entry);
-          return [
-            `"${user.name}"`, user.email, user.department, profile.inState,
-            profile.basic, profile.hra, profile.specialAllowance,
-            Math.round(profile.lta / 12), profile.medical, entry.otPay, entry.adjustments,
-            c.gross, c.pf, c.esi, c.pt, c.tds, c.ded, c.net, entry.status,
-          ].join(',');
-        }),
-      ].join('\n');
+      headers = [
+        'Employee', 'Email', 'Department', 'State',
+        'Basic', 'HRA', 'Special Allowance', 'LTA (Monthly)', 'Medical Allowance',
+        'OT Pay', 'Adjustments',
+        'Gross Pay', 'PF (Employee)', 'ESI', 'Professional Tax', 'TDS',
+        'Total Deductions', 'Net Pay', 'Status',
+      ];
+      dataRows = countryEmps.map(({ user, profile, entry }) => {
+        const c = calcINPayroll(profile, entry);
+        return [
+          str(user.name), str(user.email), str(user.department), str(profile.inState),
+          num(profile.basic), num(profile.hra), num(profile.specialAllowance),
+          num(Math.round((profile.lta ?? 0) / 12)), num(profile.medical),
+          num(entry.otPay), num(entry.adjustments),
+          num(c.gross), num(c.pf), num(c.esi), num(c.pt), num(c.tds),
+          num(c.ded), num(c.net),
+          str(entry.status ?? 'Pending'),
+        ];
+      });
     }
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `payroll_${country}_${CURRENT_MONTH}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`${country} payroll CSV downloaded`);
+
+    // Build worksheet from array of arrays
+    const wsData = [headers, ...dataRows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Column widths
+    ws['!cols'] = headers.map((h, i) => ({
+      wch: i < 3 ? 22 : h.length < 8 ? 10 : 16,
+    }));
+
+    // Workbook
+    const wb = XLSX.utils.book_new();
+    const sheetName = country === 'US' ? 'US Payroll' : 'India Payroll';
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    XLSX.writeFile(wb, `payroll_${country}_${CURRENT_MONTH}.xlsx`);
+    toast.success(`${country} payroll exported — ${countryEmps.length} employees`);
   }
 
   if (!currentUser) return null;
@@ -1424,7 +1455,7 @@ export default function AdminPayrollPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={downloadPayrollCSV}
+              onClick={downloadPayrollExcel}
               className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Download size={14}/>
@@ -1434,31 +1465,6 @@ export default function AdminPayrollPage() {
               <TrendingUp size={14}/>
               Run Payroll
             </button>
-          </div>
-        </div>
-
-        {/* ── Workflow Steps ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            {[
-              { n:1, label:'Collect attendance', sub:'Done',        done:true,  current:false },
-              { n:2, label:'Review variances',   sub:'In progress', done:false, current:true  },
-              { n:3, label:'HR + Finance approval', sub:'Up next',  done:false, current:false },
-              { n:4, label:'Disburse',           sub:'Up next',     done:false, current:false },
-            ].map((s, i) => (
-              <div key={s.n} className="flex items-center gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                    s.done?'bg-green-500 text-white':s.current?'bg-[#1B2B5E] text-white':'bg-gray-100 text-gray-300'
-                  }`}>{s.done?<CheckCircle2 size={14}/>:s.n}</div>
-                  <div>
-                    <p className={`text-xs font-semibold leading-tight ${s.done?'text-gray-500':s.current?'text-gray-900':'text-gray-300'}`}>{s.label}</p>
-                    <p className={`text-[10px] ${s.current?'text-[#1B2B5E] font-bold':'text-gray-400'}`}>{s.sub}</p>
-                  </div>
-                </div>
-                {i<3 && <ChevronRight size={14} className="text-gray-200 mx-1"/>}
-              </div>
-            ))}
           </div>
         </div>
 

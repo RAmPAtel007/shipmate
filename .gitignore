@@ -71,4 +71,6 @@ IMPLEMENTATION_CHECKLIST.md
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.tgz
-.env.local.example
+
+# ── Firebase Storage CORS config (safe to commit, no secrets) ─────────────────
+# cors.json — intentionally NOT ignored; needed to re-apply CORS via gsutil
