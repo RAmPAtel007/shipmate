@@ -85,6 +85,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function titleCase(str: string) {
+  return str
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function last7Dates() {
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -142,7 +148,7 @@ function EmployeeCard({
       </p>
       <div className="mt-3 space-y-1">
         <p className="text-[11px] text-gray-400">
-          {tcId} · <span className="capitalize">{user.department?.replace(/-/g, ' ')}</span>
+          {tcId} · {user.department ? titleCase(user.department) : '—'}
         </p>
         {(user as any).location && (
           <p className="text-[11px] text-gray-400 flex items-center gap-1">
@@ -200,7 +206,7 @@ function ProfileTab({ user, users }: { user: ShipmateUser; users: ShipmateUser[]
         <div className="bg-gray-50 rounded-xl px-4">
           {rows('Employee ID', (u.tcId ?? `TC-${1042}`), <Hash size={11}/>)}
           {rows('Job Title', u.jobTitle, <Briefcase size={11}/>)}
-          {rows('Department', u.department?.replace(/-/g, ' '), <Building2 size={11}/>)}
+          {rows('Department', u.department ? titleCase(u.department) : undefined, <Building2 size={11}/>)}
           {rows('Role', getRoleLabel(user.role), <Shield size={11}/>)}
           {rows('Joining Date', u.joinDate ?? u.joinedAt, <Calendar size={11}/>)}
           {rows('Manager', manager?.name, <User size={11}/>)}
@@ -657,72 +663,83 @@ function EmployeeDetailPanel({
   const tcId = (user as any).tcId ?? `TC-${1042 + empIdx}`;
   const joinDate = (user as any).joinDate ?? (user as any).joinedAt;
 
-  const tabs: { id: DetailTab; label: string }[] = [
-    { id: 'profile',      label: 'Profile' },
-    { id: 'attendance',   label: 'Attendance' },
-    { id: 'leave',        label: 'Leave' },
-    { id: 'documents',    label: 'Documents' },
-    { id: 'compensation', label: 'Compensation' },
-    { id: 'tab-access',   label: 'Tab Access' },
+  const tabs: { id: DetailTab; label: string; shortLabel: string }[] = [
+    { id: 'profile',      label: 'Profile',      shortLabel: 'Profile' },
+    { id: 'attendance',   label: 'Attendance',   shortLabel: 'Attend.' },
+    { id: 'leave',        label: 'Leave',        shortLabel: 'Leave' },
+    { id: 'documents',    label: 'Documents',    shortLabel: 'Docs' },
+    { id: 'compensation', label: 'Compensation', shortLabel: 'Pay' },
+    { id: 'tab-access',   label: 'Tab Access',   shortLabel: 'Access' },
   ];
 
   return (
     <div className="w-full max-w-md h-full bg-white flex flex-col border-l border-gray-100 overflow-hidden">
 
       {/* Header */}
-      <div className="bg-[#1B2B5E] px-5 py-5 flex-shrink-0">
-        <div className="flex items-start justify-between mb-4">
-          <div className={`w-12 h-12 rounded-full ${pal.bg} flex items-center justify-center overflow-hidden`}>
-            {user.photoURL
-              // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer"/>
-              : <span className={`text-sm font-bold ${pal.text}`}>{initials(user.name)}</span>
-            }
+      <div className="bg-[#1B2B5E] px-5 pt-5 pb-4 flex-shrink-0">
+        {/* Top row: avatar + actions */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-11 h-11 rounded-full ${pal.bg} flex items-center justify-center overflow-hidden flex-shrink-0 ring-2 ring-white/20`}>
+              {user.photoURL
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer"/>
+                : <span className={`text-sm font-bold ${pal.text}`}>{initials(user.name)}</span>
+              }
+            </div>
+            <div className="min-w-0">
+              <p className="text-white font-bold text-sm leading-tight truncate">{user.name}</p>
+              <p className="text-white/55 text-[11px] mt-0.5 truncate">
+                {(user as any).jobTitle ?? getRoleLabel(user.role)}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <button onClick={onEdit}
-              className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs font-semibold transition-colors bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg">
-              <Pencil size={12}/>Edit
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-lg">
+              <Pencil size={11}/>Edit
             </button>
             <button
               onClick={handleSendReset}
               disabled={resetSending}
-              title={`Send password reset email to ${user.email}`}
-              className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs font-semibold transition-colors bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg disabled:opacity-50"
+              title={`Send password reset to ${user.email}`}
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-lg disabled:opacity-50"
             >
-              {resetSending
-                ? <Loader2 size={12} className="animate-spin"/>
-                : <Mail size={12}/>
-              }
-              <span className="hidden sm:inline">Reset pwd</span>
+              {resetSending ? <Loader2 size={11} className="animate-spin"/> : <Mail size={11}/>}
+              <span>Pwd</span>
             </button>
-            <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
-              <X size={18}/>
+            <button onClick={onClose} className="text-white/50 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
+              <X size={16}/>
             </button>
           </div>
         </div>
-        <p className="text-white font-black text-base leading-tight">{user.name}</p>
-        <p className="text-white/60 text-xs mt-0.5">
-          {(user as any).jobTitle ?? getRoleLabel(user.role)} · {user.department?.replace(/-/g, ' ')}
-        </p>
-        <p className="text-white/40 text-[11px] mt-1.5">
-          {tcId} {joinDate ? `· joined ${joinDate}` : ''}
-        </p>
+        {/* Sub-info row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-white/40 bg-white/10 px-2 py-0.5 rounded-md font-mono">{tcId}</span>
+          {user.department && (
+            <span className="text-[11px] text-white/50 flex items-center gap-1">
+              <Building2 size={10} className="text-white/30"/>
+              {titleCase(user.department)}
+            </span>
+          )}
+          <StatusBadge status={(user as any).status ?? 'active'}/>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-100 flex-shrink-0 overflow-x-auto">
+      <div className="flex border-b border-gray-100 flex-shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-3 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
+            className={`flex-1 min-w-0 px-2 py-2.5 text-[11px] font-semibold whitespace-nowrap transition-all border-b-2 ${
               tab === t.id
-                ? 'border-[#1B2B5E] text-[#1B2B5E]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
+                ? 'border-[#1B2B5E] text-[#1B2B5E] bg-[#1B2B5E]/5'
+                : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {t.label}
+            <span className="hidden sm:inline">{t.label}</span>
+            <span className="sm:hidden">{t.shortLabel}</span>
           </button>
         ))}
       </div>
@@ -834,8 +851,8 @@ function TabAccessManager({ users }: { users: ShipmateUser[] }) {
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p>
-                      <p className="text-[11px] text-gray-400 truncate capitalize">
-                        {user.department?.replace(/-/g, ' ')} · {getRoleLabel(user.role)}
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {user.department ? titleCase(user.department) : '—'} · {getRoleLabel(user.role)}
                       </p>
                     </div>
                   </div>
