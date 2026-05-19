@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, CalendarDays, X, Globe, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { holidayService, type Holiday } from '@/lib/services/holidayService';
+import { announcementService } from '@/lib/services/announcementService';
 import toast from 'react-hot-toast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +56,22 @@ function HolidayModal({
         toast.success('Holiday updated');
       } else {
         await holidayService.createHoliday(payload);
-        toast.success('Holiday added');
+
+        // Auto-post an announcement so employees see it on their dashboard + notification bell
+        const [y, m, d] = date.split('-').map(Number);
+        const displayDate = new Date(y, m - 1, d).toLocaleDateString('en-US', {
+          weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        });
+        const regionLabel = type === 'company' ? 'Company-wide' : `Regional (${regions.join(', ')})`;
+        await announcementService.createAnnouncement({
+          title: `🎉 Holiday: ${name.trim()}`,
+          body: `${name.trim()} is on ${displayDate}.\n\n${regionLabel} — Offices will be closed. Enjoy your day off! 🏖️`,
+          authorId: currentUser.uid,
+          authorName: currentUser.name,
+          isPinned: true,
+        });
+
+        toast.success('Holiday added & announcement posted!');
       }
       onSaved();
       onClose();

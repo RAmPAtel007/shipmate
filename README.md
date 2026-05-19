@@ -20,7 +20,8 @@ Internal team operating system for Shipcube. One place for chat, leave managemen
 
 ### Admin panel
 - **Dashboard** — live stat cards (team size, pending leaves, channels, documents)
-- **Team management** — roles, departments, warehouses, member assignment, invite
+- **Team management** — roles, departments, warehouses, member assignment
+- **Account provisioning** — admin creates employee accounts with email + temporary password; credentials shown once at creation
 - **Tab access control** — per-employee toggle to show/hide optional nav tabs (Chat, Payslip, People, Documents)
 - **Leave approvals** — approve / reject with admin notes; full history
 - **Announcements** — create, pin, and delete company notices
@@ -32,9 +33,11 @@ Internal team operating system for Shipcube. One place for chat, leave managemen
 ### Technical highlights
 - Real-time updates via Firestore `onSnapshot`
 - Role-based access: `super_admin`, `hr_admin`, `manager`, `employee`
+- Email + password authentication — no self sign-up; admin provisions all accounts
+- Admin creates accounts via secondary Firebase app instance (stays logged in while creating)
+- Password reset via Firebase email link (works for migrating existing Google Sign-In users too)
 - Per-employee tab access control managed by admins
 - GPS location capture for attendance verification
-- Google Sign-In (configurable domain restriction)
 - Push notifications via Firebase Cloud Messaging (FCM)
 - Excel (.xlsx) export for payroll data via SheetJS
 - Mobile-first responsive layout with safe-area support
@@ -60,7 +63,7 @@ Internal team operating system for Shipcube. One place for chat, leave managemen
 ### Prerequisites
 
 - Node.js 18+
-- A [Firebase](https://firebase.google.com/) project with **Authentication**, **Firestore**, and **Storage** enabled
+- A [Firebase](https://firebase.google.com/) project with **Authentication** (Email/Password provider enabled), **Firestore**, and **Storage** enabled
 - [Firebase CLI](https://firebase.google.com/docs/cli) installed (`npm install -g firebase-tools`)
 
 ### 1 — Clone and install
@@ -90,7 +93,13 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=   # optional
 NEXT_PUBLIC_FIREBASE_VAPID_KEY=        # for push notifications (see step 5)
 ```
 
-### 3 — Deploy Firestore rules
+### 3 — Enable Email/Password auth in Firebase
+
+Firebase Console → **Authentication → Sign-in method → Email/Password → Enable**
+
+> No Google Sign-In is used. All employee accounts are created by an admin through the admin panel (Admin → Employees → Create account). The first super admin account must be created directly in the Firebase Console or seeded manually.
+
+### 4 — Deploy Firestore rules
 
 ```bash
 firebase login
@@ -98,7 +107,7 @@ firebase use <your-project-id>
 firebase deploy --only firestore:rules
 ```
 
-### 4 — Generate PWA icons (one-time)
+### 5 — Generate PWA icons (one-time)
 
 ```bash
 npm install sharp
@@ -107,13 +116,13 @@ node generate-icons.js
 
 This fetches the Shipcube logo and generates all required PNG icon sizes into `public/icons/`. Commit the output.
 
-### 5 — Push notifications (optional)
+### 6 — Push notifications (optional)
 
 1. Firebase Console → **Project Settings → Cloud Messaging → Web Push certificates → Generate key pair**
 2. Copy the key into `NEXT_PUBLIC_FIREBASE_VAPID_KEY` in `.env.local` (and in Vercel env vars)
 3. Fill in the Firebase config values inside `public/firebase-messaging-sw.js`
 
-### 6 — Start dev server
+### 7 — Start dev server
 
 ```bash
 npm run dev
@@ -163,7 +172,7 @@ shipmate/
 │   │   │   ├── channels/        # Channel management
 │   │   │   ├── documents/       # Document management
 │   │   │   └── settings/        # Company settings
-│   │   ├── login/               # Sign-in page
+│   │   ├── (auth)/login/        # Sign-in page (email + password)
 │   │   └── layout.tsx           # Root layout (fonts, PWA meta)
 │   ├── components/
 │   │   ├── layout/              # AppShell, DesktopSidebar, MobileNav
@@ -223,8 +232,12 @@ shipmate/
 1. Push to GitHub
 2. Import the repo in [Vercel](https://vercel.com/)
 3. Add all `NEXT_PUBLIC_*` env vars in **Project Settings → Environment Variables**
-4. Add your Vercel domain to **Firebase Console → Authentication → Authorized domains**
+4. Add your Vercel/custom domain to **Firebase Console → Authentication → Authorized domains**
 5. Deploy
+
+### First admin account
+
+After deploying, create the first `super_admin` account directly in **Firebase Console → Authentication → Users → Add user**, then create the matching Firestore document in `users/{uid}` with `role: "super_admin"`. All subsequent employee accounts can be created from the admin panel.
 
 ---
 

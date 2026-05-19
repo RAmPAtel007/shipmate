@@ -4,11 +4,9 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import type { User } from 'firebase/auth';
 import {
   onAuthStateChanged,
-  signInWithGoogle,
   signInWithEmail,
   signOut,
   getUserProfile,
-  handleGoogleRedirectResult,
 } from '@/lib/firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -21,8 +19,7 @@ interface AuthContextType {
   firebaseUser: User | null;
   loading: boolean;
   error: string | null;
-  signIn: () => Promise<void>;
-  signInAdmin: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
   signOutUser: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -35,7 +32,6 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   error: null,
   signIn: async () => {},
-  signInAdmin: async () => {},
   signOutUser: async () => {},
   refreshUser: async () => {},
 });
@@ -49,17 +45,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   // Holds the live Firestore listener for the logged-in user's profile doc
   const profileUnsubRef = useRef<(() => void) | null>(null);
-
-  // On mount, process a pending Google redirect result (mobile / popup-blocked flow)
-  useEffect(() => {
-    handleGoogleRedirectResult().then(user => {
-      if (user) setCurrentUser(user);
-    }).catch(err => {
-      const msg = err?.message ?? 'Sign in failed after redirect.';
-      setError(msg);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -81,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           let profile = await getUserProfile(fbUser.uid);
 
           // Race condition on first login — profile write may not have landed yet.
-          // Retry up to 3 times with short delays before giving up.
+          // Retry up to 3 times with short delays.
           if (!profile) {
             for (let i = 0; i < 3; i++) {
               await new Promise(res => setTimeout(res, 800));
@@ -91,7 +76,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (!profile) {
-            // Still not found after retries — let handleSignIn set it
             setLoading(false);
             return;
           }
@@ -109,16 +93,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setError(null);
 
           // ── Live profile listener ───────────────────────────────────────────
-          // After the initial load, subscribe to real-time changes so that when
-          // an admin updates this user's profile (name, role, department, etc.)
-          // the change propagates instantly without requiring a page refresh.
+          // Subscribes to real-time profile changes so admin updates (role,
+          // department, tab access, etc.) propagate instantly to the employee.
           profileUnsubRef.current = onSnapshot(
             doc(db, 'users', fbUser.uid),
             snap => {
               if (!snap.exists()) return;
               const updated = { uid: snap.id, ...snap.data() } as ShipmateUser;
               if (updated.status === 'inactive') {
-                // Account deactivated by admin — force sign out
                 signOut();
                 setCurrentUser(null);
                 setFirebaseUser(null);
@@ -148,20 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const handleSignIn = useCallback(async () => {
-    setError(null);
-    try {
-      const user = await signInWithGoogle();
-      // null means redirect was triggered — page will reload, result handled on mount
-      if (user) setCurrentUser(user);
-    } catch (err: any) {
-      const msg = err?.message ?? 'Sign in failed. Please try again.';
-      setError(msg);
-      throw err;
-    }
-  }, []);
-
-  const handleSignInAdmin = useCallback(async (email: string, password: string) => {
+  const handleSignIn = useCallback(async (email: string, password: string) => {
     setError(null);
     try {
       const user = await signInWithEmail(email, password);
@@ -198,7 +167,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         signIn: handleSignIn,
-        signInAdmin: handleSignInAdmin,
         signOutUser: handleSignOut,
         refreshUser,
       }}

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Calendar, MessageSquare, Users, Megaphone,
   Clock, Gift, Bell, CheckCircle2, ArrowRight,
-  FileText, ChevronRight, AlertCircle, Pin,
+  FileText, ChevronRight, AlertCircle, Pin, CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
@@ -14,6 +14,7 @@ import { userService } from '@/lib/services/userService';
 import { leaveService } from '@/lib/services/leaveService';
 import { formatDate, formatBirthdayDisplay, birthdayCountdown, formatRelativeTime, getLeaveTypeLabel } from '@/lib/utils/formatters';
 import { announcementService } from '@/lib/services/announcementService';
+import { holidayService, type Holiday } from '@/lib/services/holidayService';
 import type { ShipmateUser, LeaveRequest, Announcement } from '@/lib/types';
 
 // ── Skeleton shimmer ──────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ export default function HomePage() {
   const [pendingLeaves, setPendingLeaves]             = useState<LeaveRequest[]>([]);
   const [upcomingBirthdays, setUpcomingBirthdays]     = useState<Array<ShipmateUser & { daysUntil: number }>>([]);
   const [announcements, setAnnouncements]             = useState<Announcement[]>([]);
+  const [upcomingHolidays, setUpcomingHolidays]       = useState<Holiday[]>([]);
   const [loading, setLoading]                         = useState(true);
 
   useEffect(() => {
@@ -97,6 +99,19 @@ export default function HomePage() {
       try { const data = await announcementService.getLatestAnnouncements(5); setAnnouncements(data); }
       catch (err) { console.error('[home] announcements:', err); }
     };
+
+    const loadHolidays = async () => {
+      try {
+        const all = await holidayService.getHolidays();
+        const now = new Date(); now.setHours(0, 0, 0, 0);
+        const soon = all.filter(h => {
+          const [y, m, d] = h.date.split('-').map(Number);
+          const diff = Math.round((new Date(y, m - 1, d).getTime() - now.getTime()) / 86400000);
+          return diff >= 0 && diff <= 30;
+        });
+        setUpcomingHolidays(soon);
+      } catch (err) { console.error('[home] holidays:', err); }
+    };
     const loadLeaves = async () => {
       try { const data = await leaveService.getApprovedLeavesOnDate(today); setOnLeave(data); }
       catch (err) { console.error('[home] leaves today:', err); }
@@ -107,7 +122,7 @@ export default function HomePage() {
       catch (err) { console.error('[home] pending leaves:', err); }
     };
 
-    Promise.all([loadAnnouncements(), loadLeaves(), loadPending()])
+    Promise.all([loadAnnouncements(), loadLeaves(), loadPending(), loadHolidays()])
       .finally(markLoaded);
 
     return () => unsubUsers();
@@ -342,6 +357,62 @@ export default function HomePage() {
               </div>
             )}
           </SectionCard>
+
+          {/* Upcoming Holidays */}
+          {(loading || upcomingHolidays.length > 0) && (
+            <SectionCard
+              title="Upcoming Holidays"
+              icon={<div className="w-7 h-7 bg-[#1B2B5E]/8 rounded-lg flex items-center justify-center"><CalendarDays size={14} className="text-[#1B2B5E]" /></div>}
+              badge={!loading && upcomingHolidays.length > 0 ? (
+                <span className="text-[10px] font-bold text-[#1B2B5E] bg-[#1B2B5E]/8 px-2 py-0.5 rounded-full">next 30 days</span>
+              ) : undefined}
+            >
+              {loading ? (
+                <div className="space-y-3.5">
+                  {[1, 2].map(i => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="w-11 h-11 rounded-xl flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-2.5 w-20" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {upcomingHolidays.map(h => {
+                    const [y, m, d] = h.date.split('-').map(Number);
+                    const date = new Date(y, m - 1, d);
+                    const now = new Date(); now.setHours(0, 0, 0, 0);
+                    const daysLeft = Math.round((date.getTime() - now.getTime()) / 86400000);
+                    const dayNum = date.toLocaleDateString('en-US', { day: '2-digit' });
+                    const monthStr = date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+                    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+                    return (
+                      <div key={h.id} className="flex items-center gap-3">
+                        <div className="w-11 h-11 bg-[#1B2B5E] rounded-xl flex flex-col items-center justify-center flex-shrink-0">
+                          <span className="text-white font-black text-sm leading-none">{dayNum}</span>
+                          <span className="text-[#F5C518] text-[8px] font-bold tracking-widest leading-none mt-0.5">{monthStr}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-800 truncate">{h.name}</p>
+                          <p className="text-xs text-gray-400">{weekday} · {h.type === 'company' ? 'Company-wide' : h.regions.join(', ')}</p>
+                        </div>
+                        <span className={`flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full ${
+                          daysLeft === 0 ? 'bg-green-100 text-green-700' :
+                          daysLeft <= 7  ? 'bg-amber-100 text-amber-700' :
+                                           'bg-gray-100 text-gray-500'
+                        }`}>
+                          {daysLeft === 0 ? 'Today!' : daysLeft === 1 ? 'Tomorrow' : `${daysLeft}d`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </SectionCard>
+          )}
 
           {/* Upcoming Birthdays */}
           <SectionCard

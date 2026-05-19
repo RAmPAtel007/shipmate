@@ -6,7 +6,7 @@ import {
   Trash2, Hash, UserMinus, Check, Download,
   Mail, Phone, MapPin, Calendar, Briefcase,
   Clock, FileText, DollarSign, User, ChevronDown,
-  AlertCircle, Shield, Loader2,
+  AlertCircle, Shield, Loader2, Eye, EyeOff,
 } from 'lucide-react';
 import {
   collection, deleteDoc, doc, setDoc, getDoc,
@@ -16,8 +16,10 @@ import {
 import { db } from '@/lib/firebase/config';
 import { userService } from '@/lib/services/userService';
 import { getRoleLabel } from '@/lib/utils/formatters';
+import { createEmployeeAccount } from '@/lib/firebase/auth';
+import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';
-import type { ShipmateUser, UserRole } from '@/lib/types';
+import type { ShipmateUser, UserRole, Department } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -636,6 +638,21 @@ function EmployeeDetailPanel({
   onClose: () => void; onEdit: () => void;
 }) {
   const [tab, setTab] = useState<DetailTab>('profile');
+  const [resetSending, setResetSending] = useState(false);
+
+  async function handleSendReset() {
+    if (!user.email) return;
+    setResetSending(true);
+    try {
+      const { sendPasswordReset } = await import('@/lib/firebase/auth');
+      await sendPasswordReset(user.email);
+      toast.success(`Password reset email sent to ${user.email}`);
+    } catch {
+      toast.error('Failed to send reset email');
+    } finally {
+      setResetSending(false);
+    }
+  }
   const pal = avatarPalette(user.name);
   const tcId = (user as any).tcId ?? `TC-${1042 + empIdx}`;
   const joinDate = (user as any).joinDate ?? (user as any).joinedAt;
@@ -666,6 +683,18 @@ function EmployeeDetailPanel({
             <button onClick={onEdit}
               className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs font-semibold transition-colors bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg">
               <Pencil size={12}/>Edit
+            </button>
+            <button
+              onClick={handleSendReset}
+              disabled={resetSending}
+              title={`Send password reset email to ${user.email}`}
+              className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs font-semibold transition-colors bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg disabled:opacity-50"
+            >
+              {resetSending
+                ? <Loader2 size={12} className="animate-spin"/>
+                : <Mail size={12}/>
+              }
+              <span className="hidden sm:inline">Reset pwd</span>
             </button>
             <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
               <X size={18}/>
@@ -1487,9 +1516,213 @@ function WarehouseManageModal({ warehouse, allUsers, onClose }: {
   );
 }
 
+// ─── Create Account Modal ─────────────────────────────────────────────────────
+
+function CreateAccountModal({
+  departments,
+  currentUser,
+  onClose,
+  onCreated,
+}: {
+  departments: DeptRecord[];
+  currentUser: ShipmateUser;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName]           = useState('');
+  const [emailUser, setEmailUser] = useState('');   // part before @
+  const [password, setPassword]   = useState('');
+  const [showPass, setShowPass]   = useState(false);
+  const [role, setRole]           = useState<UserRole>('employee');
+  const [dept, setDept]           = useState(departments[0]?.id ?? '');
+  const [saving, setSaving]       = useState(false);
+  const [created, setCreated]     = useState<{ email: string; password: string } | null>(null);
+
+  function generatePassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$!';
+    return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  }
+
+  useEffect(() => {
+    setPassword(generatePassword());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fullEmail = emailUser.trim() ? `${emailUser.trim().toLowerCase()}@shipcube.com` : '';
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !emailUser.trim() || !password || !dept) {
+      toast.error('All fields are required'); return;
+    }
+    setSaving(true);
+    try {
+      await createEmployeeAccount({
+        name: name.trim(),
+        email: fullEmail,
+        password,
+        department: dept as Department,
+        role,
+        createdBy: currentUser.uid,
+        createdByName: currentUser.name,
+      });
+      setCreated({ email: fullEmail, password });
+      onCreated();
+      toast.success(`Account created for ${name.trim()}!`);
+    } catch (err: any) {
+      const msg = err?.message ?? 'Failed to create account';
+      if (msg.includes('email-already-in-use')) {
+        toast.error('That email is already registered.');
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="bg-[#1B2B5E] px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield size={15} className="text-[#F5C518]" />
+            <h2 className="text-white font-bold text-sm">Create Employee Account</h2>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white"><X size={18}/></button>
+        </div>
+
+        {/* Credentials panel — shown after successful creation */}
+        {created ? (
+          <div className="p-6 space-y-4">
+            <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mx-auto">
+              <Check size={26} className="text-green-500"/>
+            </div>
+            <p className="text-center font-bold text-gray-900">Account Created!</p>
+            <p className="text-center text-sm text-gray-500">Share these credentials with the employee. They can change their password after signing in.</p>
+
+            <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Email</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-mono font-bold text-gray-800">{created.email}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(created.email); toast.success('Copied!'); }}
+                    className="text-[10px] font-bold text-[#1B2B5E] bg-[#1B2B5E]/8 px-2 py-1 rounded-lg hover:bg-[#1B2B5E]/15 transition-colors flex-shrink-0">
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="border-t border-gray-200 pt-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Temporary Password</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-mono font-bold text-gray-800">{created.password}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(created.password); toast.success('Copied!'); }}
+                    className="text-[10px] font-bold text-[#1B2B5E] bg-[#1B2B5E]/8 px-2 py-1 rounded-lg hover:bg-[#1B2B5E]/15 transition-colors flex-shrink-0">
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-center">
+              ⚠️ Save these credentials now — the password won&apos;t be shown again.
+            </p>
+
+            <button onClick={onClose}
+              className="w-full py-3 rounded-xl bg-[#1B2B5E] text-white font-bold text-sm hover:bg-[#2D4080] transition-colors">
+              Done
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleCreate} className="p-6 space-y-4">
+
+            {/* Name */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Full Name</label>
+              <input type="text" value={name} onChange={e => setName(e.target.value)} required
+                placeholder="John Smith"
+                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E]"/>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Email</label>
+              <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#1B2B5E]/15 focus-within:border-[#1B2B5E] transition-all">
+                <input type="text" value={emailUser} onChange={e => setEmailUser(e.target.value.replace(/[@\s]/g, ''))} required
+                  placeholder="john.smith"
+                  className="flex-1 px-3.5 py-2.5 text-sm bg-white focus:outline-none"/>
+                <span className="px-3 py-2.5 bg-gray-50 border-l border-gray-200 text-sm text-gray-400 font-medium select-none">
+                  @shipcube.com
+                </span>
+              </div>
+            </div>
+
+            {/* Role + Department */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Role</label>
+                <select value={role} onChange={e => setRole(e.target.value as UserRole)} required
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E] bg-white">
+                  <option value="employee">Employee</option>
+                  <option value="manager">Manager</option>
+                  <option value="hr_admin">HR Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Department</label>
+                <select value={dept} onChange={e => setDept(e.target.value)} required
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E] bg-white">
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">
+                Temporary Password
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input type={showPass ? 'text' : 'password'} value={password}
+                    onChange={e => setPassword(e.target.value)} required minLength={8}
+                    className="w-full px-3.5 py-2.5 pr-10 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E]"/>
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    {showPass ? <EyeOff size={14}/> : <Eye size={14}/>}
+                  </button>
+                </div>
+                <button type="button" onClick={() => setPassword(generatePassword())}
+                  className="px-3 py-2.5 text-xs font-bold text-[#1B2B5E] bg-[#1B2B5E]/8 rounded-xl hover:bg-[#1B2B5E]/15 transition-colors whitespace-nowrap flex-shrink-0">
+                  Regenerate
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">Minimum 8 characters. Employee should change this after first login.</p>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving || !name.trim() || !emailUser.trim() || !password || !dept}
+                className="flex-1 py-3 rounded-xl bg-[#1B2B5E] text-white text-sm font-bold hover:bg-[#2D4080] disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving ? <><Loader2 size={14} className="animate-spin"/>Creating…</> : <>Create Account</>}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
+  const { currentUser } = useAuth();
   const [tab, setTab]               = useState<'employees' | 'departments' | 'warehouses' | 'tab-access'>('employees');
   const [users, setUsers]           = useState<ShipmateUser[]>([]);
   const [departments, setDepartments] = useState<DeptRecord[]>([]);
@@ -1501,6 +1734,7 @@ export default function AdminUsersPage() {
   const [selectedUser, setSelectedUser] = useState<ShipmateUser | null>(null);
   const [editingUser, setEditingUser]   = useState<ShipmateUser | null>(null);
   const [showAddDept, setShowAddDept]   = useState(false);
+  const [showCreateAccount, setShowCreateAccount] = useState(false);
   const [managingDept, setManagingDept] = useState<DeptRecord | null>(null);
   const [managingWarehouse, setManagingWarehouse] = useState<WarehouseRecord | null>(null);
 
@@ -1599,11 +1833,11 @@ export default function AdminUsersPage() {
           <div className="flex items-center justify-between mb-1">
             <h1 className="text-xl md:text-2xl font-black text-gray-900">Employees</h1>
             <button
-              onClick={() => { /* Future: Add employee modal */ toast('Invite via Firebase Authentication → create user there first, then their profile will sync here.', { icon: 'ℹ️' }); }}
+              onClick={() => setShowCreateAccount(true)}
               className="flex items-center gap-2 bg-[#1B2B5E] text-white text-sm font-bold px-3 md:px-4 py-2 md:py-2.5 rounded-xl hover:bg-[#2D4080] transition-colors"
             >
               <Plus size={14}/>
-              <span className="hidden sm:inline">Add employee</span>
+              <span className="hidden sm:inline">Create account</span>
               <span className="sm:hidden">Add</span>
             </button>
           </div>
@@ -1919,6 +2153,14 @@ export default function AdminUsersPage() {
             // Refresh selected user from updated list
             setSelectedUser(prev => prev ? ({ ...prev, ...(users.find(u => u.uid === prev.uid) ?? {}) }) : null);
           }}
+        />
+      )}
+      {showCreateAccount && currentUser && (
+        <CreateAccountModal
+          departments={departments}
+          currentUser={currentUser}
+          onClose={() => setShowCreateAccount(false)}
+          onCreated={() => { /* users list auto-updates via onSnapshot */ }}
         />
       )}
       {showAddDept && <AddDeptModal onClose={() => setShowAddDept(false)} onAdded={() => {}}/>}
