@@ -38,7 +38,7 @@ interface WarehouseRecord {
   code: string;
 }
 
-type DetailTab = 'profile' | 'attendance' | 'leave' | 'documents' | 'compensation';
+type DetailTab = 'profile' | 'attendance' | 'leave' | 'documents' | 'compensation' | 'tab-access';
 
 const ROLES: UserRole[] = ['super_admin', 'hr_admin', 'manager', 'employee'];
 
@@ -646,6 +646,7 @@ function EmployeeDetailPanel({
     { id: 'leave',        label: 'Leave' },
     { id: 'documents',    label: 'Documents' },
     { id: 'compensation', label: 'Compensation' },
+    { id: 'tab-access',   label: 'Tab Access' },
   ];
 
   return (
@@ -704,7 +705,261 @@ function EmployeeDetailPanel({
         {tab === 'leave'        && <LeaveTab user={user}/>}
         {tab === 'documents'    && <DocumentsTab user={user}/>}
         {tab === 'compensation' && <CompensationTab user={user}/>}
+        {tab === 'tab-access'   && <TabAccessTab user={user}/>}
       </div>
+    </div>
+  );
+}
+
+// ─── Tab Access Manager (top-level page tab) ─────────────────────────────────
+
+function TabAccessManager({ users }: { users: ShipmateUser[] }) {
+  const [saving, setSaving] = useState<string | null>(null); // "uid:key"
+  const [search, setSearch] = useState('');
+
+  const employees = users.filter(u =>
+    !['super_admin', 'hr_admin'].includes(u.role) &&
+    u.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const TABS_CONFIG = [
+    { key: 'chat',      label: 'Chat',      icon: '💬' },
+    { key: 'payslip',   label: 'Payslip',   icon: '💰' },
+    { key: 'people',    label: 'People',    icon: '👥' },
+    { key: 'documents', label: 'Documents', icon: '📁' },
+  ];
+
+  async function toggle(user: ShipmateUser, key: string) {
+    const current = ((user as any).tabAccess ?? {})[key] === true;
+    const id = `${user.uid}:${key}`;
+    setSaving(id);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        [`tabAccess.${key}`]: !current,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success(`${key} ${!current ? 'enabled' : 'disabled'} for ${user.name}`);
+    } catch {
+      toast.error('Failed to update');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold text-gray-800">Tab Access Control</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Default tabs (Dashboard, Attendance, Calendar, Leaves, Settings) are always visible.
+            Toggle optional tabs per employee below.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 w-full sm:w-56">
+          <Search size={14} className="text-gray-400 flex-shrink-0"/>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search employee…"
+            className="bg-transparent text-sm text-gray-700 placeholder-gray-400 outline-none flex-1"
+          />
+          {search && <button onClick={() => setSearch('')}><X size={12} className="text-gray-400"/></button>}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        {/* Column headers */}
+        <div className="grid border-b border-gray-100 bg-gray-50/60"
+          style={{ gridTemplateColumns: '1fr repeat(4, 100px)' }}>
+          <div className="px-5 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Employee</div>
+          {TABS_CONFIG.map(t => (
+            <div key={t.key} className="py-3 text-center text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+              {t.icon} {t.label}
+            </div>
+          ))}
+        </div>
+
+        {/* Rows */}
+        {employees.length === 0 ? (
+          <div className="py-12 text-center text-sm text-gray-400">
+            {search ? 'No employees match your search' : 'No employees found'}
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {employees.map(user => {
+              const access = (user as any).tabAccess ?? {};
+              const pal = avatarPalette(user.name);
+              return (
+                <div key={user.uid} className="grid items-center hover:bg-gray-50/50 transition-colors"
+                  style={{ gridTemplateColumns: '1fr repeat(4, 100px)' }}>
+                  {/* Name */}
+                  <div className="px-5 py-3.5 flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full ${pal.bg} flex items-center justify-center overflow-hidden flex-shrink-0`}>
+                      {user.photoURL
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer"/>
+                        : <span className={`text-[10px] font-bold ${pal.text}`}>{initials(user.name)}</span>
+                      }
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p>
+                      <p className="text-[11px] text-gray-400 truncate capitalize">
+                        {user.department?.replace(/-/g, ' ')} · {getRoleLabel(user.role)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Toggle per tab */}
+                  {TABS_CONFIG.map(({ key }) => {
+                    const enabled = access[key] === true;
+                    const isSaving = saving === `${user.uid}:${key}`;
+                    return (
+                      <div key={key} className="flex items-center justify-center py-3">
+                        <button
+                          onClick={() => toggle(user, key)}
+                          disabled={!!isSaving}
+                          className={`relative w-10 h-[22px] rounded-full transition-colors ${
+                            enabled ? 'bg-[#1B2B5E]' : 'bg-gray-200'
+                          }`}
+                        >
+                          {isSaving ? (
+                            <Loader2 size={11} className="absolute inset-0 m-auto animate-spin text-white"/>
+                          ) : (
+                            <span className={`absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow transition-transform ${
+                              enabled ? 'translate-x-[20px]' : 'translate-x-[2px]'
+                            }`}/>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400 text-center">
+        Changes take effect on the employee&apos;s next page load. Admins always see all tabs.
+      </p>
+    </div>
+  );
+}
+
+// ─── Tab Access Tab ───────────────────────────────────────────────────────────
+
+const OPTIONAL_TABS: { key: string; label: string; description: string; icon: string }[] = [
+  { key: 'chat',      label: 'Chat',      description: 'Team messaging and direct messages',     icon: '💬' },
+  { key: 'payslip',   label: 'Payslip',   description: 'View monthly payslips and salary info',  icon: '💰' },
+  { key: 'people',    label: 'People',    description: 'Browse the employee directory',           icon: '👥' },
+  { key: 'documents', label: 'Documents', description: 'Access shared files and documents',      icon: '📁' },
+];
+
+const DEFAULT_TAB_LABELS = ['Dashboard', 'Attendance', 'Team Calendar', 'Leaves', 'Settings'];
+
+function TabAccessTab({ user }: { user: ShipmateUser }) {
+  // Sync local state whenever the user prop updates (parent onSnapshot fires)
+  const [access, setAccess] = useState<Record<string, boolean>>(
+    (user as any).tabAccess ?? {}
+  );
+  useEffect(() => {
+    setAccess((user as any).tabAccess ?? {});
+  }, [user]);
+  const [saving, setSaving] = useState<string | null>(null);
+  const isAdminUser = ['super_admin', 'hr_admin'].includes(user.role);
+
+  async function toggle(key: string) {
+    const next = !access[key];
+    setSaving(key);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        [`tabAccess.${key}`]: next,
+        updatedAt: serverTimestamp(),
+      });
+      setAccess(prev => ({ ...prev, [key]: next }));
+      toast.success(`${key} tab ${next ? 'enabled' : 'disabled'} for ${user.name}`);
+    } catch {
+      toast.error('Failed to update tab access');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="p-5 space-y-5">
+      {/* Default tabs (locked) */}
+      <div>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+          Default Tabs — Always Visible
+        </p>
+        <div className="space-y-2">
+          {DEFAULT_TAB_LABELS.map(label => (
+            <div key={label} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-gray-50 border border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-green-400" />
+                <span className="text-sm font-medium text-gray-700">{label}</span>
+              </div>
+              <span className="text-[11px] font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                Always on
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Optional tabs */}
+      <div>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+          Optional Tabs — Admin Controlled
+        </p>
+        {isAdminUser && (
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-3">
+            This user is an admin and always sees all tabs.
+          </p>
+        )}
+        <div className="space-y-2">
+          {OPTIONAL_TABS.map(({ key, label, description, icon }) => {
+            const enabled = access[key] === true;
+            const isSaving = saving === key;
+            return (
+              <div key={key} className={`flex items-center justify-between py-3 px-3 rounded-xl border transition-colors ${
+                enabled ? 'bg-[#1B2B5E]/3 border-[#1B2B5E]/10' : 'bg-white border-gray-100'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-lg leading-none">{icon}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{label}</p>
+                    <p className="text-[11px] text-gray-400">{description}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !isAdminUser && toggle(key)}
+                  disabled={isSaving || isAdminUser}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                    isAdminUser ? 'opacity-40 cursor-not-allowed' :
+                    enabled ? 'bg-[#1B2B5E]' : 'bg-gray-200'
+                  }`}
+                >
+                  {isSaving ? (
+                    <Loader2 size={12} className="absolute inset-0 m-auto animate-spin text-white"/>
+                  ) : (
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      enabled ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}/>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <p className="text-[11px] text-gray-400 text-center pt-1">
+        Changes take effect immediately on the employee&apos;s next page load.
+      </p>
     </div>
   );
 }
@@ -1235,7 +1490,7 @@ function WarehouseManageModal({ warehouse, allUsers, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
-  const [tab, setTab]               = useState<'employees' | 'departments' | 'warehouses'>('employees');
+  const [tab, setTab]               = useState<'employees' | 'departments' | 'warehouses' | 'tab-access'>('employees');
   const [users, setUsers]           = useState<ShipmateUser[]>([]);
   const [departments, setDepartments] = useState<DeptRecord[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -1362,12 +1617,17 @@ export default function AdminUsersPage() {
         {/* Tabs */}
         <div className="bg-white border-b border-gray-100 px-4 md:px-6 flex-shrink-0">
           <div className="flex gap-4 md:gap-6">
-            {(['employees', 'departments', 'warehouses'] as const).map(t => (
-              <button key={t} onClick={() => { setTab(t); setSelectedUser(null); }}
-                className={`py-3 text-sm font-bold border-b-2 capitalize transition-all ${
-                  tab === t ? 'border-[#1B2B5E] text-[#1B2B5E]' : 'border-transparent text-gray-400 hover:text-gray-600'
+            {([
+              { id: 'employees',  label: 'Employees'  },
+              { id: 'departments',label: 'Departments' },
+              { id: 'warehouses', label: 'Warehouses'  },
+              { id: 'tab-access', label: 'Tab Access'  },
+            ] as const).map(({ id, label }) => (
+              <button key={id} onClick={() => { setTab(id); setSelectedUser(null); }}
+                className={`py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
+                  tab === id ? 'border-[#1B2B5E] text-[#1B2B5E]' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}>
-                {t}
+                {label}
               </button>
             ))}
           </div>
@@ -1627,6 +1887,12 @@ export default function AdminUsersPage() {
               })()}
             </>
           )}
+
+          {/* ── Tab Access tab ── */}
+          {tab === 'tab-access' && (
+            <TabAccessManager users={users} />
+          )}
+
         </div>
       </div>
 

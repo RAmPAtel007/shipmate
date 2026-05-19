@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -9,20 +10,22 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDepartmentLabel } from '@/lib/utils/formatters';
-import type { ShipmateUser } from '@/lib/types';
+import type { ShipmateUser, TabKey } from '@/lib/types';
 
-const NAV_ITEMS = [
-  { icon: Home,          label: 'Dashboard',     href: '/home',          key: 'home' },
-  { icon: MessageSquare, label: 'Chat',           href: '/chat',          key: 'chat' },
-  { icon: Clock,         label: 'Attendance',     href: '/attendance',    key: 'attendance' },
-  { icon: Calendar,      label: 'Leaves',         href: '/leaves',        key: 'leaves' },
-  { icon: CalendarDays,  label: 'Team Calendar',  href: '/calendar',      key: 'calendar' },
-  { icon: Receipt,       label: 'Payslip',        href: '/payslip',       key: 'payslip' },
-  { icon: Users,         label: 'People',         href: '/people',        key: 'people' },
-  { icon: FolderOpen,    label: 'Documents',      href: '/documents',     key: 'documents' },
-  { icon: Megaphone,     label: 'Announcements',  href: '/announcements', key: 'announcements' },
-  { icon: Settings,      label: 'Settings',       href: '/settings',      key: 'settings' },
-] as const;
+// Always visible regardless of tabAccess
+const DEFAULT_TABS = ['home', 'attendance', 'calendar', 'leaves', 'settings'];
+
+const NAV_ITEMS: { icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>; label: string; href: string; key: string }[] = [
+  { icon: Home,          label: 'Dashboard',    href: '/home',       key: 'home' },
+  { icon: MessageSquare, label: 'Chat',         href: '/chat',       key: 'chat' },
+  { icon: Clock,         label: 'Attendance',   href: '/attendance', key: 'attendance' },
+  { icon: Calendar,      label: 'Leaves',       href: '/leaves',     key: 'leaves' },
+  { icon: CalendarDays,  label: 'Team Calendar',href: '/calendar',   key: 'calendar' },
+  { icon: Receipt,       label: 'Payslip',      href: '/payslip',    key: 'payslip' },
+  { icon: Users,         label: 'People',       href: '/people',     key: 'people' },
+  { icon: FolderOpen,    label: 'Documents',    href: '/documents',  key: 'documents' },
+  { icon: Settings,      label: 'Settings',     href: '/settings',   key: 'settings' },
+];
 
 interface Props {
   currentUser: ShipmateUser;
@@ -41,6 +44,13 @@ export function DesktopSidebar({
   const router = useRouter();
   const isAdmin = ['super_admin', 'hr_admin'].includes(currentUser.role);
   const initials = currentUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  // Admins see all tabs; employees only see default + granted tabs
+  const visibleItems = NAV_ITEMS.filter(({ key }) => {
+    if (isAdmin) return true;
+    if (DEFAULT_TABS.includes(key)) return true;
+    return currentUser.tabAccess?.[key as TabKey] === true;
+  });
 
   async function handleSignOut() {
     await signOutUser();
@@ -71,14 +81,11 @@ export function DesktopSidebar({
 
       {/* ── Navigation ────────────────────────────────────────────── */}
       <nav className="flex-1 px-2 py-2 overflow-y-auto space-y-0.5">
-        {NAV_ITEMS.map(({ icon: Icon, label, href, key }) => {
+        {visibleItems.map(({ icon: Icon, label, href, key }) => {
           const isActive = activeTab === key;
 
           // Badge count per nav item
-          const badge =
-            key === 'chat' && unreadCount > 0 ? unreadCount :
-            key === 'announcements' && unreadAnnouncements > 0 ? unreadAnnouncements :
-            0;
+          const badge = key === 'chat' && unreadCount > 0 ? unreadCount : 0;
 
           return (
             <Link

@@ -1,6 +1,13 @@
 // ── Firebase Messaging Service Worker ────────────────────────────────────────
 // Handles background push notifications when the app is closed/backgrounded.
+//
 // NOTE: process.env is NOT available in service workers — values must be inlined.
+// Firebase web API keys are PUBLIC IDENTIFIERS, not secrets. Security is enforced
+// entirely by Firebase Security Rules and Authentication — not by the API key.
+// See: https://firebase.google.com/docs/projects/api-keys
+//
+// ⚠️  If you fork this repo, replace the values below with your own Firebase project
+//     config from: Firebase Console → Project Settings → Your Apps → Web app.
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');

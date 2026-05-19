@@ -392,7 +392,6 @@ export function AppShell({ currentUser, children, notifPermission, onRequestNoti
             currentUser={currentUser}
             activeTab={activeTab}
             unreadCount={unreadCount}
-            unreadAnnouncements={unreadAnnouncements}
           />
         </div>
 

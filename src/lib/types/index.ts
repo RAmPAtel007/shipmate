@@ -42,6 +42,13 @@ export type AuditAction =
 
 // ─── USER ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Keys of optional tabs that an admin can grant to an employee.
+ * Default tabs (always visible): home, attendance, calendar, leaves, settings.
+ * Everything else requires explicit permission stored here.
+ */
+export type TabKey = 'chat' | 'payslip' | 'people' | 'documents';
+
 export interface ShipmateUser {
   uid: string;
   name: string;
@@ -56,6 +63,12 @@ export interface ShipmateUser {
   photoURL?: string | null;
   status: UserStatus;
   notificationTokens: string[]; // FCM tokens (multiple devices)
+  /**
+   * Tab-level access control.
+   * Keys are TabKey values; true = visible in nav, false/missing = hidden.
+   * Admins & HR see all tabs regardless of this field.
+   */
+  tabAccess?: Partial<Record<TabKey, boolean>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

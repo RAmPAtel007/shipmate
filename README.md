@@ -8,19 +8,23 @@ Internal team operating system for Shipcube. One place for chat, leave managemen
 
 ### Employee app
 - **Home dashboard** — personalised greeting, leave balance, upcoming birthdays, who's on leave today, pinned announcements
+- **Attendance** — GPS-verified punch-in/punch-out with live clock, status tracking, 30-day history, and 7-day stats
 - **Chat** — real-time channels, DMs, @mentions, file sharing
 - **Leave requests** — apply, track, and cancel leave with live balance display
+- **Calendar** — team calendar view
+- **Payslip** — view and download monthly payslips
 - **People** — searchable employee directory with department filter
-- **Announcements** — company notices with read receipts
-- **Documents** — upload and browse shared files
+- **Documents** — upload and browse shared files (PDF, images, ZIP, DOCX, and more)
 - **Notification bell** — in-app notification badge that clears when viewed
 - **PWA** — installable on iOS and Android with Shipcube home-screen icon
 
 ### Admin panel
 - **Dashboard** — live stat cards (team size, pending leaves, channels, documents)
-- **Team management** — roles, departments, member assignment, invite
+- **Team management** — roles, departments, warehouses, member assignment, invite
+- **Tab access control** — per-employee toggle to show/hide optional nav tabs (Chat, Payslip, People, Documents)
 - **Leave approvals** — approve / reject with admin notes; full history
 - **Announcements** — create, pin, and delete company notices
+- **Payroll** — monthly payroll overview with Excel (.xlsx) export
 - **Chat & Channels** — channel creation and moderation
 - **Documents** — upload management
 - **Settings** — company info and team structure
@@ -28,8 +32,11 @@ Internal team operating system for Shipcube. One place for chat, leave managemen
 ### Technical highlights
 - Real-time updates via Firestore `onSnapshot`
 - Role-based access: `super_admin`, `hr_admin`, `manager`, `employee`
+- Per-employee tab access control managed by admins
+- GPS location capture for attendance verification
 - Google Sign-In (configurable domain restriction)
 - Push notifications via Firebase Cloud Messaging (FCM)
+- Excel (.xlsx) export for payroll data via SheetJS
 - Mobile-first responsive layout with safe-area support
 
 ---
@@ -67,7 +74,7 @@ npm install
 ### 2 — Environment variables
 
 ```bash
-cp .env.example .env.local
+cp .env.local.example .env.local
 ```
 
 Fill in your Firebase credentials from **Firebase Console → Project Settings → Your Apps**:
@@ -174,7 +181,7 @@ shipmate/
 │   └── manifest.json            # Web app manifest
 ├── firestore.rules              # Firestore security rules
 ├── generate-icons.js            # One-time PWA icon generator
-├── .env.example                 # Environment variable template
+├── .env.local.example           # Environment variable template
 ├── next.config.js
 ├── tailwind.config.ts
 └── tsconfig.json
