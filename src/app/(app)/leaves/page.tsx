@@ -114,7 +114,7 @@ function ApplyLeaveForm({ onClose, onSuccess }: { onClose: () => void; onSuccess
       await leaveService.applyLeave({
         employeeId: currentUser.uid,
         employeeName: currentUser.name,
-        employeePhotoURL: currentUser.photoURL,
+        employeePhotoURL: currentUser.photoURL ?? null,
         departmentId: currentUser.department,
         type: form.type,
         startDate: form.startDate,

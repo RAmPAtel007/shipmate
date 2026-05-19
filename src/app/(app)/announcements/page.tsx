@@ -400,7 +400,7 @@ export default function AnnouncementsPage() {
   const unseenHolidayCount = upcomingHolidays.filter(h => h.id && !seenHolidayIds.has(h.id)).length;
 
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto pb-24 md:pb-8">
+    <div className="h-full overflow-y-auto p-4 md:p-6 max-w-2xl mx-auto pb-24 md:pb-8">
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">

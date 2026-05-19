@@ -762,12 +762,107 @@ const ChannelItem = memo(function ChannelItem({
   );
 });
 
+// ── New DM Picker modal ───────────────────────────────────────────────────────
+
+function NewDMPicker({
+  currentUserId,
+  userMap,
+  photoMap,
+  onSelect,
+  onClose,
+}: {
+  currentUserId: string;
+  userMap: Map<string, string>;
+  photoMap?: Map<string, string | null>;
+  onSelect: (uid: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const allUsers: { uid: string; name: string; photo: string | null }[] = [];
+  userMap.forEach((name, uid) => {
+    if (uid !== currentUserId) {
+      allUsers.push({ uid, name, photo: photoMap?.get(uid) ?? null });
+    }
+  });
+  allUsers.sort((a, b) => a.name.localeCompare(b.name));
+
+  const filtered = search
+    ? allUsers.filter(u => u.name.toLowerCase().includes(search.toLowerCase()))
+    : allUsers;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-[#1B2B5E] px-4 py-3.5 flex items-center justify-between flex-shrink-0">
+          <p className="text-white font-bold text-sm">New Direct Message</p>
+          <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
+            <XIcon size={16}/>
+          </button>
+        </div>
+        {/* Search */}
+        <div className="px-3 pt-3 pb-2 flex-shrink-0">
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+            <Search size={14} className="text-gray-400 flex-shrink-0"/>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search team members…"
+              className="bg-transparent text-sm text-gray-700 placeholder-gray-400 outline-none flex-1"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600">
+                <XIcon size={12}/>
+              </button>
+            )}
+          </div>
+        </div>
+        {/* List */}
+        <div className="flex-1 overflow-y-auto px-2 pb-3">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-8">No members found</p>
+          ) : (
+            <div className="space-y-0.5">
+              {filtered.map(u => (
+                <button
+                  key={u.uid}
+                  onClick={() => onSelect(u.uid, u.name)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-left"
+                >
+                  {u.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={u.photo} alt={u.name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" referrerPolicy="no-referrer"/>
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-[#1B2B5E]/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[11px] font-bold text-[#1B2B5E]">
+                        {u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <span className="text-sm font-medium text-gray-800 truncate">{u.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminChatSidebar({
-  channels, activeId, currentUserId, unreadByChannel, userMap, photoMap, onSelect,
+  channels, activeId, currentUserId, unreadByChannel, userMap, photoMap, onSelect, onNewDM,
 }: {
   channels: Channel[]; activeId: string | null; currentUserId: string;
   unreadByChannel: Record<string, number>; userMap: Map<string, string>;
   photoMap?: Map<string, string | null>; onSelect: (id: string) => void;
+  onNewDM: () => void;
 }) {
   const publicChannels = channels.filter(c => c.type === 'public');
   const deptChannels = channels.filter(c => c.type === 'department');
@@ -809,19 +904,33 @@ function AdminChatSidebar({
           </section>
         )}
 
-        {dms.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Direct Messages</span>
-              <button className="text-gray-400 hover:text-gray-600 transition-colors" title="New DM"><Plus size={13} /></button>
-            </div>
+        {/* Direct Messages — always visible, with + to start new DM */}
+        <section>
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Direct Messages</span>
+            <button
+              onClick={onNewDM}
+              className="text-gray-400 hover:text-[#1B2B5E] transition-colors"
+              title="New direct message"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+          {dms.length > 0 ? (
             <div className="space-y-0.5">
               {dms.map(ch => (
                 <ChannelItem key={ch.id} channel={ch} isActive={ch.id === activeId} currentUserId={currentUserId} unread={(unreadByChannel[ch.id] ?? 0) > 0} userMap={userMap} photoMap={photoMap} onSelect={() => onSelect(ch.id)} />
               ))}
             </div>
-          </section>
-        )}
+          ) : (
+            <button
+              onClick={onNewDM}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-xl text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+            >
+              <Plus size={11}/>Start a direct message
+            </button>
+          )}
+        </section>
 
         {channels.length === 0 && (
           <p className="text-xs text-gray-400 px-3 py-6 text-center">Loading channels…</p>
@@ -979,12 +1088,15 @@ function AdminChatInner() {
   const [loaded, setLoaded] = useState(false);
   const [userMap, setUserMap] = useState<Map<string, string>>(new Map());
   const [photoMap, setPhotoMap] = useState<Map<string, string | null>>(new Map());
+  const [showNewDM, setShowNewDM] = useState(false);
   const initialSelectDone = useRef(false);
   const { byChannel: unreadByChannel } = useUnreadCounts();
 
-  // Single subscription builds both name and photo maps so all avatars stay current
+  // Single subscription builds both name and photo maps so all avatars stay current.
+  // Uses subscribeToAllUsers (no status filter) so every team member appears in the
+  // DM picker, including onboarding / inactive accounts.
   useEffect(() => {
-    const unsub = userService.subscribeToUsers(users => {
+    const unsub = userService.subscribeToAllUsers(users => {
       const nm = new Map<string, string>();
       const pm = new Map<string, string | null>();
       users.forEach(u => {
@@ -1051,6 +1163,26 @@ function AdminChatInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
+  const handleStartDM = useCallback(async (targetUid: string, targetName: string) => {
+    if (!currentUser) return;
+    setShowNewDM(false);
+    try {
+      const dmId = await chatService.getOrCreateDM(
+        currentUser.uid, currentUser.name,
+        targetUid, targetName,
+      );
+      // Make sure this DM is in our channels list before selecting
+      if (!channels.find(c => c.id === dmId)) {
+        const dmCh = await chatService.getChannelById(dmId);
+        if (dmCh) setChannels(prev => [...prev, dmCh]);
+      }
+      handleSelectChannel(dmId);
+    } catch {
+      toast.error('Failed to open conversation');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid, channels]);
+
   const activeChannel = channels.find(c => c.id === activeChannelId) ?? null;
 
   return (
@@ -1065,8 +1197,20 @@ function AdminChatInner() {
           userMap={userMap}
           photoMap={photoMap}
           onSelect={handleSelectChannel}
+          onNewDM={() => setShowNewDM(true)}
         />
       </div>
+
+      {/* New DM picker */}
+      {showNewDM && (
+        <NewDMPicker
+          currentUserId={currentUser?.uid ?? ''}
+          userMap={userMap}
+          photoMap={photoMap}
+          onSelect={handleStartDM}
+          onClose={() => setShowNewDM(false)}
+        />
+      )}
 
       {/* Conversation */}
       {activeChannel ? (

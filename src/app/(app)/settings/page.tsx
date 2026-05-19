@@ -417,7 +417,7 @@ export default function SettingsPage() {
   const visibleNav = NAV.filter(n => !n.adminOnly || isAdmin);
 
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto pb-8">
+    <div className="h-full overflow-y-auto p-4 md:p-6 max-w-2xl mx-auto pb-8">
 
       {/* Header */}
       <div className="mb-5">

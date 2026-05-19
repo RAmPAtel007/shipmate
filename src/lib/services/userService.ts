@@ -72,6 +72,20 @@ export const userService = {
   },
 
   /**
+   * Real-time listener for ALL users regardless of status.
+   * Used in admin contexts (e.g. chat DM picker) where inactive /
+   * onboarding users should still be reachable.
+   */
+  subscribeToAllUsers(callback: (users: ShipmateUser[]) => void): Unsubscribe {
+    return onSnapshot(collection(db, USERS), snap => {
+      const users = snap.docs
+        .map(d => mapUser(d.id, d.data()))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      callback(users);
+    });
+  },
+
+  /**
    * Find users whose birthday month+day matches today.
    * We store birthday as 'YYYY-MM-DD'; match on '--MM-DD' suffix.
    */

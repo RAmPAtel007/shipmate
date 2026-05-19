@@ -638,13 +638,28 @@ function CompensationTab({ user }: { user: ShipmateUser }) {
 // ─── Employee Detail Panel ────────────────────────────────────────────────────
 
 function EmployeeDetailPanel({
-  user, users, empIdx, onClose, onEdit,
+  user, users, empIdx, onClose, onEdit, onDeleted,
 }: {
   user: ShipmateUser; users: ShipmateUser[]; empIdx: number;
-  onClose: () => void; onEdit: () => void;
+  onClose: () => void; onEdit: () => void; onDeleted: () => void;
 }) {
   const [tab, setTab] = useState<DetailTab>('profile');
   const [resetSending, setResetSending] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'users', user.uid));
+      toast.success(`${user.name} has been deleted`);
+      onDeleted();
+      onClose();
+    } catch {
+      toast.error('Failed to delete employee');
+      setDeleting(false);
+    }
+  }
 
   async function handleSendReset() {
     if (!user.email) return;
@@ -673,7 +688,7 @@ function EmployeeDetailPanel({
   ];
 
   return (
-    <div className="w-full max-w-md h-full bg-white flex flex-col border-l border-gray-100 overflow-hidden">
+    <div className="relative w-full max-w-md h-full bg-white flex flex-col border-l border-gray-100 overflow-hidden">
 
       {/* Header */}
       <div className="bg-[#1B2B5E] px-5 pt-5 pb-4 flex-shrink-0">
@@ -707,6 +722,13 @@ function EmployeeDetailPanel({
             >
               {resetSending ? <Loader2 size={11} className="animate-spin"/> : <Mail size={11}/>}
               <span>Pwd</span>
+            </button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              title="Delete employee"
+              className="flex items-center gap-1 text-red-300 hover:text-white text-[11px] font-semibold transition-colors bg-red-500/20 hover:bg-red-500/50 px-2.5 py-1.5 rounded-lg"
+            >
+              <Trash2 size={11}/>
             </button>
             <button onClick={onClose} className="text-white/50 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
               <X size={16}/>
@@ -753,6 +775,38 @@ function EmployeeDetailPanel({
         {tab === 'compensation' && <CompensationTab user={user}/>}
         {tab === 'tab-access'   && <TabAccessTab user={user}/>}
       </div>
+
+      {/* Delete confirm overlay */}
+      {confirmDelete && (
+        <div className="absolute inset-0 bg-black/60 z-20 flex items-end justify-center">
+          <div className="w-full bg-white rounded-t-2xl p-5 shadow-2xl">
+            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mb-3 mx-auto">
+              <Trash2 size={18} className="text-red-500"/>
+            </div>
+            <p className="text-sm font-bold text-gray-900 text-center mb-1">Delete {user.name}?</p>
+            <p className="text-xs text-gray-500 text-center mb-4">
+              This permanently removes their account and cannot be undone. Their chat history and leave records will remain.
+            </p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600 disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {deleting ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>}
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+            <div className="h-2"/>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2156,6 +2210,7 @@ export default function AdminUsersPage() {
             empIdx={selectedIdx >= 0 ? selectedIdx : 0}
             onClose={() => setSelectedUser(null)}
             onEdit={() => setEditingUser(selectedUser)}
+            onDeleted={() => setSelectedUser(null)}
           />
         </div>
       )}

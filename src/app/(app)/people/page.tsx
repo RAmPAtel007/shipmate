@@ -322,7 +322,7 @@ export default function PeoplePage() {
   }
 
   return (
-    <div className="p-5 md:p-8 max-w-6xl mx-auto pb-8">
+    <div className="h-full overflow-y-auto p-5 md:p-8 max-w-6xl mx-auto pb-8">
 
       {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-3">
