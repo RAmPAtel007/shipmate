@@ -104,6 +104,19 @@ function requestLocation(): Promise<GeoPoint> {
   });
 }
 
+// ─── Numbered step helper (used inside CameraCapture error UI) ───────────────
+
+function Step({ n, text }: { n: number; text: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-5 h-5 rounded-full bg-white/20 text-white text-[11px] font-black flex-shrink-0 flex items-center justify-center">
+        {n}
+      </span>
+      <p className="text-white/80 text-sm leading-snug">{text}</p>
+    </div>
+  );
+}
+
 // ─── Camera Capture Modal ─────────────────────────────────────────────────────
 
 function CameraCapture({
@@ -121,7 +134,11 @@ function CameraCapture({
 
   const [camState, setCamState] = useState<'starting' | 'live' | 'captured' | 'error'>('starting');
   const [preview,  setPreview]  = useState<string | null>(null);
-  const [errMsg,   setErrMsg]   = useState('');
+  const [permDenied, setPermDenied] = useState(false);
+
+  // Detect mobile OS for platform-specific instructions
+  const isIOS     = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
 
   useEffect(() => {
     startCamera();
@@ -132,6 +149,22 @@ function CameraCapture({
   async function startCamera() {
     setCamState('starting');
     setPreview(null);
+    setPermDenied(false);
+
+    // Check permission state first (supported in Chrome/Firefox on Android)
+    if (navigator.permissions) {
+      try {
+        const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        if (status.state === 'denied') {
+          setPermDenied(true);
+          setCamState('error');
+          return;
+        }
+      } catch {
+        // Permissions API not supported — proceed to getUserMedia which will prompt
+      }
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
@@ -145,11 +178,8 @@ function CameraCapture({
       setCamState('live');
     } catch (err: unknown) {
       const name = (err as { name?: string }).name ?? '';
-      setErrMsg(
-        name === 'NotAllowedError' || name === 'PermissionDeniedError'
-          ? 'Camera permission denied. Please allow camera access in your browser settings.'
-          : 'Camera is unavailable on this device.',
-      );
+      const isDenied = name === 'NotAllowedError' || name === 'PermissionDeniedError';
+      setPermDenied(isDenied);
       setCamState('error');
     }
   }
@@ -212,14 +242,52 @@ function CameraCapture({
       {/* Viewfinder */}
       <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
         {camState === 'error' ? (
-          <div className="text-center px-8 py-10">
+          <div className="text-center px-6 py-8 max-w-xs mx-auto">
             <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <CameraOff size={28} className="text-red-400" />
             </div>
-            <p className="text-white font-bold text-base">{errMsg}</p>
+            <p className="text-white font-black text-lg mb-2">Camera access needed</p>
+
+            {permDenied ? (
+              <>
+                <p className="text-white/60 text-sm leading-relaxed mb-5">
+                  Your browser doesn&apos;t have camera permission. Follow these steps to enable it:
+                </p>
+
+                {/* Step-by-step instructions */}
+                <div className="bg-white/10 rounded-2xl p-4 text-left space-y-3 mb-5">
+                  {isIOS ? (
+                    <>
+                      <Step n={1} text="Open your iPhone Settings app" />
+                      <Step n={2} text="Scroll down and tap Safari (or your browser)" />
+                      <Step n={3} text="Tap Camera → Allow" />
+                      <Step n={4} text="Come back and tap Try Again below" />
+                    </>
+                  ) : isAndroid ? (
+                    <>
+                      <Step n={1} text="Open your phone Settings app" />
+                      <Step n={2} text="Tap Apps → find your browser (Chrome, etc.)" />
+                      <Step n={3} text="Tap Permissions → Camera → Allow" />
+                      <Step n={4} text="Come back and tap Try Again below" />
+                    </>
+                  ) : (
+                    <>
+                      <Step n={1} text="Click the lock icon in your browser's address bar" />
+                      <Step n={2} text="Find Camera and change it to Allow" />
+                      <Step n={3} text="Refresh the page or tap Try Again" />
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-white/60 text-sm leading-relaxed mb-5">
+                Camera is unavailable on this device or browser. Make sure you&apos;re using a supported browser (Chrome, Safari, Firefox) and try again.
+              </p>
+            )}
+
             <button
               onClick={startCamera}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+              className="w-full py-3 rounded-xl bg-white text-gray-900 text-sm font-black hover:bg-white/90 active:scale-95 transition-all"
             >
               Try Again
             </button>
@@ -283,7 +351,7 @@ function CameraCapture({
         ) : camState === 'error' ? (
           <button
             onClick={() => { stopStream(); onCancel(); }}
-            className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm"
+            className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20 transition-colors"
           >
             Cancel
           </button>
