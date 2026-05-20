@@ -151,20 +151,27 @@ function CameraCapture({
     setPreview(null);
     setPermDenied(false);
 
-    // Check permission state first (supported in Chrome/Firefox on Android)
+    // Always call getUserMedia directly — this triggers the native OS permission
+    // popup on first use (just like location does). We only skip it if we can
+    // confirm via the Permissions API that the user has explicitly denied it,
+    // because in that case the browser silently blocks getUserMedia anyway.
+    let alreadyDenied = false;
     if (navigator.permissions) {
       try {
         const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
-        if (status.state === 'denied') {
-          setPermDenied(true);
-          setCamState('error');
-          return;
-        }
+        alreadyDenied = status.state === 'denied';
       } catch {
-        // Permissions API not supported — proceed to getUserMedia which will prompt
+        // Permissions API not supported on this browser — that's fine
       }
     }
 
+    if (alreadyDenied) {
+      setPermDenied(true);
+      setCamState('error');
+      return;
+    }
+
+    // This call triggers the native "Allow camera?" popup on first use
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
