@@ -50,6 +50,13 @@ const STATUS_CFG: Record<AttendanceStatus, { label: string; bg: string; text: st
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
+function nowHHMMSS() {
+  return new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+}
+
+/** HH:MM only — used for punch timestamps stored in Firestore */
 function nowHHMM() {
   return new Date().toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', hour12: false,
@@ -317,8 +324,8 @@ export default function AttendancePage() {
   const [records, setRecords]   = useState<Record<string, AttendanceRecord>>({});
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
-  const [liveTime, setLiveTime] = useState(nowHHMM());
-  const [elapsedMins, setElapsedMins] = useState(0);
+  const [liveTime, setLiveTime] = useState(nowHHMMSS());
+  const [, setTick] = useState(0); // forces re-render every second
   const [locState, setLocState] = useState<LocState>('idle');
   const [onApprovedLeave, setOnApprovedLeave] = useState(false);
   const [leaveName, setLeaveName] = useState('');
@@ -331,12 +338,12 @@ export default function AttendancePage() {
   const isPunchedIn  = !!todayRec?.punchIn;
   const isPunchedOut = !!todayRec?.punchOut;
 
-  // Live clock tick + elapsed timer
+  // Tick every second — updates clock and live work duration
   useEffect(() => {
     const t = setInterval(() => {
-      setLiveTime(nowHHMM());
-      setElapsedMins(prev => prev + 1);
-    }, 60_000);
+      setLiveTime(nowHHMMSS());
+      setTick(n => n + 1);
+    }, 1_000);
     return () => clearInterval(t);
   }, []);
 
@@ -537,17 +544,26 @@ export default function AttendancePage() {
 
   const isGettingLocation = locState === 'requesting';
 
-  // Live elapsed hours for in-progress sessions
-  const liveHours = (() => {
+  // Live elapsed time for in-progress sessions (recomputed every second)
+  const liveElapsed = (() => {
     if (!isPunchedIn || isPunchedOut || !todayRec?.punchIn) return null;
     const [ih, im] = todayRec.punchIn.split(':').map(Number);
-    const [ch, cm] = liveTime.split(':').map(Number);
-    const mins = (ch * 60 + cm) - (ih * 60 + im);
-    if (mins < 0) return null;
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const now  = new Date();
+    const totalSecs = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds())
+                    - (ih * 3600 + im * 60);
+    if (totalSecs < 0) return null;
+    const h = Math.floor(totalSecs / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    return {
+      // e.g. "2h 14m" for the session banner
+      short: h > 0 ? `${h}h ${m}m` : `${m}m`,
+      // e.g. "02:14:09" for the header display
+      clock: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`,
+    };
   })();
+
+  const liveHours = liveElapsed?.short ?? null; // kept for banner compatibility
 
   // Status accent colors — always derived from punch-in time, not stored field
   const todayStatus = todayRec ? displayStatus(todayRec) : null;
@@ -556,7 +572,6 @@ export default function AttendancePage() {
     : todayStatus === 'remote' ? '#3b82f6'
     : '#d1d5db';
 
-  void elapsedMins; // used to trigger re-render every minute
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6fb]">
@@ -577,12 +592,27 @@ export default function AttendancePage() {
             </div>
             {/* Live clock */}
             <div className="text-right">
-              <p className="text-[#F5C518] font-mono font-black text-3xl leading-none">{liveTime}</p>
-              {isPunchedIn && !isPunchedOut && liveHours && (
-                <p className="text-white/40 text-[10px] font-medium mt-1 flex items-center justify-end gap-1">
-                  <Timer size={9} />
-                  {liveHours} elapsed
-                </p>
+              {/* HH:MM in large yellow, :SS smaller */}
+              <p className="text-[#F5C518] font-mono font-black leading-none flex items-baseline justify-end gap-0.5">
+                <span className="text-3xl">{liveTime.slice(0, 5)}</span>
+                <span className="text-lg opacity-70">{liveTime.slice(5)}</span>
+              </p>
+              {/* Today's total work duration — ticks every second while session is live */}
+              {isPunchedIn && !isPunchedOut && liveElapsed && (
+                <div className="mt-1.5 text-right">
+                  <p className="text-white/30 text-[9px] uppercase tracking-wider font-semibold">Today&apos;s work</p>
+                  <p className="text-white font-mono font-black text-base leading-tight">
+                    {liveElapsed.clock}
+                  </p>
+                </div>
+              )}
+              {isPunchedOut && todayRec?.hours != null && (
+                <div className="mt-1.5 text-right">
+                  <p className="text-white/30 text-[9px] uppercase tracking-wider font-semibold">Today&apos;s work</p>
+                  <p className="text-[#F5C518]/80 font-mono font-black text-base leading-tight">
+                    {String(Math.floor(todayRec.hours)).padStart(2,'0')}h {String(Math.round((todayRec.hours % 1) * 60)).padStart(2,'0')}m
+                  </p>
+                </div>
               )}
             </div>
           </div>
