@@ -104,289 +104,208 @@ function requestLocation(): Promise<GeoPoint> {
   });
 }
 
-// ─── Numbered step helper (used inside CameraCapture error UI) ───────────────
+// (Step helper removed — no longer needed)
 
-function Step({ n, text }: { n: number; text: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="w-5 h-5 rounded-full bg-white/20 text-white text-[11px] font-black flex-shrink-0 flex items-center justify-center">
-        {n}
-      </span>
-      <p className="text-white/80 text-sm leading-snug">{text}</p>
-    </div>
-  );
-}
-
-// ─── Camera Capture Modal ─────────────────────────────────────────────────────
+// ─── Camera Capture ───────────────────────────────────────────────────────────
+// Mobile  → <input capture="user"> opens native camera app, zero permission hassle
+// Desktop → getUserMedia in-browser viewfinder
 
 function CameraCapture({
-  punchType,
-  onCapture,
-  onCancel,
-}: {
-  punchType: 'in' | 'out';
-  onCapture: (blob: Blob) => void;
-  onCancel: () => void;
-}) {
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  punchType, onCapture, onCancel,
+}: { punchType: 'in'|'out'; onCapture: (b: Blob) => void; onCancel: () => void }) {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return isMobile
+    ? <MobileCameraCapture  punchType={punchType} onCapture={onCapture} onCancel={onCancel} />
+    : <DesktopCameraCapture punchType={punchType} onCapture={onCapture} onCancel={onCancel} />;
+}
 
-  const [camState,  setCamState]  = useState<'starting' | 'live' | 'captured' | 'error'>('starting');
-  const [preview,   setPreview]   = useState<string | null>(null);
-  const [permDenied, setPermDenied] = useState(false);
-  const [errDetail,  setErrDetail]  = useState('');   // raw error name for debugging
+// ── Mobile ────────────────────────────────────────────────────────────────────
 
-  // Detect mobile OS for platform-specific instructions
-  const isIOS     = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const isAndroid = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
+function MobileCameraCapture({
+  punchType, onCapture, onCancel,
+}: { punchType:'in'|'out'; onCapture:(b:Blob)=>void; onCancel:()=>void }) {
+  const fileRef  = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [file,    setFile]    = useState<File | null>(null);
 
+  const label    = punchType === 'in' ? 'Punch In' : 'Punch Out';
+  const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
+
+  // Open camera automatically on mount
   useEffect(() => {
-    startCamera();
-    return () => stopStream();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => fileRef.current?.click(), 120);
+    return () => clearTimeout(t);
   }, []);
 
-  async function startCamera() {
-    setCamState('starting');
-    setPreview(null);
-    setPermDenied(false);
-    setErrDetail('');
-
-    // ── Secure context check ────────────────────────────────────────────────
-    // getUserMedia requires HTTPS (or localhost). If the app is accessed over
-    // plain HTTP on the phone, mediaDevices will be undefined.
-    if (!window.isSecureContext) {
-      setErrDetail('InsecureContext: app must be on HTTPS');
-      setPermDenied(false);
-      setCamState('error');
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setErrDetail('getUserMedia not available in this browser/context');
-      setPermDenied(false);
-      setCamState('error');
-      return;
-    }
-
-    // ── Direct getUserMedia call — triggers native OS permission popup ───────
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCamState('live');
-    } catch (err: unknown) {
-      const name    = (err as { name?: string }).name    ?? 'UnknownError';
-      const message = (err as { message?: string }).message ?? '';
-      const isDenied = name === 'NotAllowedError' || name === 'PermissionDeniedError';
-      setPermDenied(isDenied);
-      setErrDetail(`${name}: ${message}`);
-      setCamState('error');
-    }
-  }
-
-  function stopStream() {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-  }
-
-  function takePhoto() {
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    // Mirror-flip so the selfie looks natural
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0);
-    ctx.restore();
-    setPreview(canvas.toDataURL('image/jpeg', 0.85));
-    setCamState('captured');
-    stopStream();
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
   }
 
   function retake() {
     setPreview(null);
-    startCamera();
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = '';
+    setTimeout(() => fileRef.current?.click(), 80);
   }
 
-  function confirmPhoto() {
-    canvasRef.current?.toBlob(
-      blob => { if (blob) onCapture(blob); },
-      'image/jpeg',
-      0.85,
-    );
-  }
-
-  const label = punchType === 'in' ? 'Punch In' : 'Punch Out';
-  const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
+  function confirmPhoto() { if (file) onCapture(file); }
 
   return (
     <div className="fixed inset-0 bg-black z-[60] flex flex-col">
+      {/* Hidden native camera input */}
+      <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleFile} />
 
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/70 flex-shrink-0">
-        <button
-          onClick={() => { stopStream(); onCancel(); }}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
-        >
+        <button onClick={onCancel} className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white">
           <X size={18} />
         </button>
         <p className="text-white font-bold text-sm tracking-wide">{label} · Take a Selfie</p>
         <div className="w-9" />
       </div>
 
-      {/* Viewfinder */}
+      {/* Body */}
+      <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6">
+        {preview ? (
+          <>
+            <div className="w-60 h-60 rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
+              <img src={preview} alt="selfie" className="w-full h-full object-cover" />
+            </div>
+            <p className="text-white/50 text-sm">Looking good? Use this or retake.</p>
+          </>
+        ) : (
+          <>
+            <div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center">
+              <Camera size={40} className="text-white/60" />
+            </div>
+            <div className="text-center space-y-2">
+              <p className="text-white font-bold text-lg">Camera opening…</p>
+              <p className="text-white/40 text-sm">Take your selfie, then come back here.</p>
+            </div>
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="px-6 py-3 rounded-2xl bg-white/10 text-white text-sm font-semibold"
+            >
+              Open Camera
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="flex-shrink-0 bg-black/70 px-6 py-8 flex items-center justify-center gap-4">
+        {preview ? (
+          <>
+            <button onClick={retake} className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">
+              <RotateCcw size={16} /> Retake
+            </button>
+            <button onClick={confirmPhoto} className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-all`}>
+              <Check size={18} /> Use Photo
+            </button>
+          </>
+        ) : (
+          <button onClick={onCancel} className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">Cancel</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Desktop ───────────────────────────────────────────────────────────────────
+
+function DesktopCameraCapture({
+  punchType, onCapture, onCancel,
+}: { punchType:'in'|'out'; onCapture:(b:Blob)=>void; onCancel:()=>void }) {
+  const videoRef  = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const [camState, setCamState] = useState<'starting'|'live'|'captured'|'error'>('starting');
+  const [preview,  setPreview]  = useState<string | null>(null);
+  const [errMsg,   setErrMsg]   = useState('');
+
+  const label    = punchType === 'in' ? 'Punch In' : 'Punch Out';
+  const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
+
+  useEffect(() => { startCamera(); return () => stopStream(); /* eslint-disable-next-line */ }, []);
+
+  async function startCamera() {
+    setCamState('starting'); setPreview(null); setErrMsg('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      setCamState('live');
+    } catch (err: unknown) {
+      const name = (err as { name?: string }).name ?? '';
+      setErrMsg(
+        name === 'NotAllowedError' || name === 'PermissionDeniedError'
+          ? 'Camera access denied. Click the lock icon in the address bar → Camera → Allow, then try again.'
+          : 'Camera unavailable. Make sure no other app is using it.',
+      );
+      setCamState('error');
+    }
+  }
+
+  function stopStream() { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+
+  function takePhoto() {
+    const v = videoRef.current; const c = canvasRef.current; if (!v || !c) return;
+    c.width = v.videoWidth || 640; c.height = v.videoHeight || 480;
+    const ctx = c.getContext('2d'); if (!ctx) return;
+    ctx.save(); ctx.translate(c.width, 0); ctx.scale(-1, 1); ctx.drawImage(v, 0, 0); ctx.restore();
+    setPreview(c.toDataURL('image/jpeg', 0.85)); setCamState('captured'); stopStream();
+  }
+
+  function retake() { setPreview(null); startCamera(); }
+  function confirmPhoto() { canvasRef.current?.toBlob(b => { if (b) onCapture(b); }, 'image/jpeg', 0.85); }
+
+  return (
+    <div className="fixed inset-0 bg-black z-[60] flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 bg-black/70 flex-shrink-0">
+        <button onClick={() => { stopStream(); onCancel(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
+          <X size={18} />
+        </button>
+        <p className="text-white font-bold text-sm tracking-wide">{label} · Take a Selfie</p>
+        <div className="w-9" />
+      </div>
       <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
         {camState === 'error' ? (
-          <div className="text-center px-6 py-8 max-w-xs mx-auto">
-            <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <CameraOff size={28} className="text-red-400" />
-            </div>
-            <p className="text-white font-black text-lg mb-2">Camera access needed</p>
-
-            {/* Debug detail — helps identify exact failure */}
-            {errDetail ? (
-              <p className="text-white/30 text-[10px] font-mono mb-3 break-all">{errDetail}</p>
-            ) : null}
-
-            {!window.isSecureContext ? (
-              <p className="text-white/70 text-sm leading-relaxed mb-5">
-                This app must be opened over <span className="text-white font-bold">HTTPS</span> for camera to work.
-                Make sure you&apos;re using the <span className="font-bold">https://</span> URL, not http://.
-              </p>
-            ) : errDetail.includes('getUserMedia not available') ? (
-              <p className="text-white/70 text-sm leading-relaxed mb-5">
-                Camera API is not supported in this browser or context. Try opening the app in Chrome or Safari.
-              </p>
-            ) : permDenied ? (
-              <>
-                <p className="text-white/60 text-sm leading-relaxed mb-5">
-                  Your browser doesn&apos;t have camera permission. Follow these steps to enable it:
-                </p>
-
-                {/* Step-by-step instructions */}
-                <div className="bg-white/10 rounded-2xl p-4 text-left space-y-3 mb-5">
-                  {isIOS ? (
-                    <>
-                      <Step n={1} text="Open your iPhone Settings app" />
-                      <Step n={2} text="Scroll down and tap Safari (or your browser)" />
-                      <Step n={3} text="Tap Camera → Allow" />
-                      <Step n={4} text="Come back and tap Try Again below" />
-                    </>
-                  ) : isAndroid ? (
-                    <>
-                      <Step n={1} text="Open your phone Settings app" />
-                      <Step n={2} text="Tap Apps → find your browser (Chrome, etc.)" />
-                      <Step n={3} text="Tap Permissions → Camera → Allow" />
-                      <Step n={4} text="Come back and tap Try Again below" />
-                    </>
-                  ) : (
-                    <>
-                      <Step n={1} text="Click the lock icon in your browser's address bar" />
-                      <Step n={2} text="Find Camera and change it to Allow" />
-                      <Step n={3} text="Refresh the page or tap Try Again" />
-                    </>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p className="text-white/60 text-sm leading-relaxed mb-5">
-                Camera is unavailable on this device or browser. Make sure you&apos;re using a supported browser (Chrome, Safari, Firefox) and try again.
-              </p>
-            )}
-
-
-            <button
-              onClick={startCamera}
-              className="w-full py-3 rounded-xl bg-white text-gray-900 text-sm font-black hover:bg-white/90 active:scale-95 transition-all"
-            >
-              Try Again
-            </button>
+          <div className="text-center px-8 max-w-xs">
+            <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4"><CameraOff size={28} className="text-red-400" /></div>
+            <p className="text-white font-bold text-base mb-2">Camera access needed</p>
+            <p className="text-white/60 text-sm leading-relaxed mb-5">{errMsg}</p>
+            <button onClick={startCamera} className="w-full py-3 rounded-xl bg-white text-gray-900 text-sm font-black">Try Again</button>
           </div>
         ) : preview ? (
           <img src={preview} alt="preview" className="w-full h-full object-cover" />
         ) : (
           <>
-            {camState === 'starting' && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <Loader2 size={36} className="text-white/40 animate-spin" />
-              </div>
-            )}
-            {/* Mirror flip via CSS so live preview looks like a selfie */}
-            <video
-              ref={videoRef}
-              className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }}
-              playsInline
-              muted
-            />
+            {camState === 'starting' && <div className="absolute inset-0 flex items-center justify-center z-10"><Loader2 size={36} className="text-white/40 animate-spin" /></div>}
+            <video ref={videoRef} className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} playsInline muted />
           </>
         )}
-
-        {/* Face-guide overlay when live */}
-        {camState === 'live' && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-52 h-64 rounded-full border-2 border-white/30 border-dashed" />
-          </div>
-        )}
-
+        {camState === 'live' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-52 h-64 rounded-full border-2 border-white/30 border-dashed" /></div>}
         <canvas ref={canvasRef} className="hidden" />
       </div>
-
-      {/* Controls */}
       <div className="flex-shrink-0 bg-black/70 px-6 py-8 flex items-center justify-center gap-8">
         {camState === 'live' ? (
-          /* Shutter button */
-          <button
-            onClick={takePhoto}
-            className="w-20 h-20 rounded-full bg-white active:scale-95 transition-transform shadow-xl flex items-center justify-center"
-          >
+          <button onClick={takePhoto} className="w-20 h-20 rounded-full bg-white active:scale-95 transition-transform shadow-xl flex items-center justify-center">
             <div className="w-[68px] h-[68px] rounded-full bg-white border-4 border-gray-300" />
           </button>
         ) : camState === 'captured' ? (
-          /* Retake / Use */
           <>
-            <button
-              onClick={retake}
-              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20 transition-colors"
-            >
-              <RotateCcw size={16} /> Retake
-            </button>
-            <button
-              onClick={confirmPhoto}
-              className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-all`}
-            >
-              <Check size={18} /> Use Photo
-            </button>
+            <button onClick={retake} className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20"><RotateCcw size={16} /> Retake</button>
+            <button onClick={confirmPhoto} className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95`}><Check size={18} /> Use Photo</button>
           </>
         ) : camState === 'error' ? (
-          <button
-            onClick={() => { stopStream(); onCancel(); }}
-            className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20 transition-colors"
-          >
-            Cancel
-          </button>
+          <button onClick={() => { stopStream(); onCancel(); }} className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">Cancel</button>
         ) : null}
       </div>
-
-      {/* Hint */}
-      {camState === 'live' && (
-        <p className="text-center text-white/30 text-[11px] pb-3 flex-shrink-0">
-          Position your face in the circle and tap the shutter
-        </p>
-      )}
+      {camState === 'live' && <p className="text-center text-white/30 text-[11px] pb-3 flex-shrink-0">Position your face in the circle and tap the shutter</p>}
     </div>
   );
 }
