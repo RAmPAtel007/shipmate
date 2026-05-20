@@ -61,7 +61,20 @@ function calcHours(pIn: string | null, pOut: string | null): number {
 
 function autoStatus(punchIn: string): AttendanceStatus {
   const [h, m] = punchIn.split(':').map(Number);
-  return (h > 9 || (h === 9 && m > 5)) ? 'late' : 'on_time';
+  // Late only if punch-in is at or after 11:00 AM
+  return (h * 60 + m) >= 11 * 60 ? 'late' : 'on_time';
+}
+
+/**
+ * Always derive the display status from the punch-in time using the current
+ * rule (late = 11:00 AM+). This overrides any stale 'late' value that was
+ * stored in Firestore under an old threshold.
+ */
+function displayStatus(rec: AttendanceRecord): AttendanceStatus {
+  if (rec.punchIn && (rec.status === 'on_time' || rec.status === 'late')) {
+    return autoStatus(rec.punchIn);
+  }
+  return rec.status;
 }
 
 function fmtCoords(pt?: GeoPoint) {
@@ -95,6 +108,7 @@ export default function AttendancePage() {
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [liveTime, setLiveTime] = useState(nowHHMM());
+  const [elapsedMins, setElapsedMins] = useState(0);
   const [locState, setLocState] = useState<LocState>('idle');
   const [onApprovedLeave, setOnApprovedLeave] = useState(false);
   const [leaveName, setLeaveName] = useState('');
@@ -105,9 +119,12 @@ export default function AttendancePage() {
   const isPunchedIn  = !!todayRec?.punchIn;
   const isPunchedOut = !!todayRec?.punchOut;
 
-  // Live clock tick
+  // Live clock tick + elapsed timer
   useEffect(() => {
-    const t = setInterval(() => setLiveTime(nowHHMM()), 10_000);
+    const t = setInterval(() => {
+      setLiveTime(nowHHMM());
+      setElapsedMins(prev => prev + 1);
+    }, 60_000);
     return () => clearInterval(t);
   }, []);
 
@@ -212,6 +229,7 @@ export default function AttendancePage() {
 
   async function handlePunchOut() {
     if (!currentUser || !todayRec?.punchIn) return;
+
     setSaving(true);
     setLocState('requesting');
 
@@ -230,6 +248,7 @@ export default function AttendancePage() {
       );
       return;
     }
+
 
     const now   = nowHHMM();
     const hours = calcHours(todayRec.punchIn, now);
@@ -283,88 +302,146 @@ export default function AttendancePage() {
 
   const isGettingLocation = locState === 'requesting';
 
-  return (
-    <div className="h-full overflow-y-auto bg-gray-50">
+  // Live elapsed hours for in-progress sessions
+  const liveHours = (() => {
+    if (!isPunchedIn || isPunchedOut || !todayRec?.punchIn) return null;
+    const [ih, im] = todayRec.punchIn.split(':').map(Number);
+    const [ch, cm] = liveTime.split(':').map(Number);
+    const mins = (ch * 60 + cm) - (ih * 60 + im);
+    if (mins < 0) return null;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  })();
 
-      {/* ── Header banner ── */}
-      <div className="bg-[#1B2B5E] px-5 pt-6 pb-16 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1B2B5E] to-[#2D4080] pointer-events-none" />
-        <div className="relative max-w-lg mx-auto">
-          <p className="text-white/50 text-xs font-medium uppercase tracking-wider mb-1">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
-          <h1 className="text-white font-black text-2xl">Attendance</h1>
-          <p className="text-[#F5C518] font-mono font-black text-4xl mt-2 leading-none">{liveTime}</p>
+  // Status accent colors — always derived from punch-in time, not stored field
+  const todayStatus = todayRec ? displayStatus(todayRec) : null;
+  const statusAccent = todayStatus === 'on_time' ? '#22c55e'
+    : todayStatus === 'late'   ? '#f59e0b'
+    : todayStatus === 'remote' ? '#3b82f6'
+    : '#d1d5db';
+
+  void elapsedMins; // used to trigger re-render every minute
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#f4f6fb]">
+
+      {/* ── Header ── */}
+      <div className="bg-[#1B2B5E] relative overflow-hidden">
+        {/* Decorative circles */}
+        <div className="absolute -top-10 -right-10 w-48 h-48 bg-white/5 rounded-full pointer-events-none" />
+        <div className="absolute -bottom-6 -left-6 w-32 h-32 bg-[#F5C518]/10 rounded-full pointer-events-none" />
+
+        <div className="relative px-5 pt-6 pb-6 max-w-lg mx-auto">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-white/40 text-[11px] font-semibold uppercase tracking-wider">
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+              <h1 className="text-white font-black text-xl mt-0.5">Attendance</h1>
+            </div>
+            {/* Live clock */}
+            <div className="text-right">
+              <p className="text-[#F5C518] font-mono font-black text-3xl leading-none">{liveTime}</p>
+              {isPunchedIn && !isPunchedOut && liveHours && (
+                <p className="text-white/40 text-[10px] font-medium mt-1 flex items-center justify-end gap-1">
+                  <Timer size={9} />
+                  {liveHours} elapsed
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Status pill if punched in */}
+          {todayRec && (
+            <div className="mt-3 inline-flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusAccent }} />
+              <span className="text-white/80 text-[11px] font-semibold">
+                {STATUS_CFG[todayStatus!]?.label}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="px-4 -mt-10 pb-10 space-y-4 max-w-lg mx-auto">
+      <div className="px-4 pt-4 pb-10 space-y-3 max-w-lg mx-auto">
 
         {/* ── Today's card ── */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
-          {/* Status bar at top */}
-          {todayRec && (
-            <div className={`h-1 w-full ${
-              todayRec.status === 'on_time' ? 'bg-green-400' :
-              todayRec.status === 'late'    ? 'bg-amber-400' :
-              todayRec.status === 'remote'  ? 'bg-blue-400'  : 'bg-gray-200'
-            }`} />
-          )}
+          {/* Colored top stripe */}
+          <div className="h-1 w-full" style={{ backgroundColor: statusAccent }} />
 
-          <div className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Today</p>
-              {todayRec && (
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${STATUS_CFG[todayRec.status]?.bg} ${STATUS_CFG[todayRec.status]?.text}`}>
-                  {STATUS_CFG[todayRec.status]?.label}
-                </span>
-              )}
-            </div>
+          <div className="p-4">
 
-            {/* Punch times */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-green-50 rounded-xl p-3 text-center">
-                <p className="text-[10px] font-bold text-green-600 uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
-                  <LogIn size={10} />In
+            {/* IN / OUT times */}
+            <div className="grid grid-cols-2 gap-2.5 mb-3">
+              {/* Punch In */}
+              <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3.5">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="w-5 h-5 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <LogIn size={11} className="text-white" />
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Punch In</span>
+                </div>
+                <p className={`font-black leading-none ${todayRec?.punchIn ? 'text-2xl text-emerald-700' : 'text-xl text-emerald-300'}`}>
+                  {todayRec?.punchIn ?? '— : —'}
                 </p>
-                <p className="text-xl font-black text-green-700">{todayRec?.punchIn ?? '—'}</p>
-                {todayRec?.punchInLocation && (
-                  <p className="text-[9px] text-green-500 mt-1 flex items-center justify-center gap-0.5">
-                    <MapPin size={8}/>{fmtCoords(todayRec.punchInLocation)}
+                {todayRec?.punchInLocation ? (
+                  <p className="text-[9px] text-emerald-500/80 mt-1.5 flex items-center gap-0.5 truncate">
+                    <MapPin size={8} className="flex-shrink-0" />
+                    {fmtCoords(todayRec.punchInLocation)}
                   </p>
+                ) : (
+                  <p className="text-[9px] text-emerald-300 mt-1.5">No location</p>
                 )}
               </div>
-              <div className="bg-red-50 rounded-xl p-3 text-center">
-                <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
-                  <LogOut size={10} />Out
+
+              {/* Punch Out */}
+              <div className={`rounded-xl border p-3.5 ${isPunchedOut ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className={`w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 ${isPunchedOut ? 'bg-red-500' : 'bg-gray-300'}`}>
+                    <LogOut size={11} className="text-white" />
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${isPunchedOut ? 'text-red-500' : 'text-gray-400'}`}>Punch Out</span>
+                </div>
+                <p className={`font-black leading-none ${isPunchedOut ? 'text-2xl text-red-600' : 'text-xl text-gray-300'}`}>
+                  {todayRec?.punchOut ?? '— : —'}
                 </p>
-                <p className="text-xl font-black text-red-600">{todayRec?.punchOut ?? '—'}</p>
-                {todayRec?.punchOutLocation && (
-                  <p className="text-[9px] text-red-400 mt-1 flex items-center justify-center gap-0.5">
-                    <MapPin size={8}/>{fmtCoords(todayRec.punchOutLocation)}
+                {todayRec?.punchOutLocation ? (
+                  <p className="text-[9px] text-red-400/80 mt-1.5 flex items-center gap-0.5 truncate">
+                    <MapPin size={8} className="flex-shrink-0" />
+                    {fmtCoords(todayRec.punchOutLocation)}
                   </p>
+                ) : (
+                  <p className={`text-[9px] mt-1.5 ${isPunchedOut ? 'text-red-300' : 'text-gray-300'}`}>No location</p>
                 )}
               </div>
             </div>
 
-            {/* In-progress / done banner */}
-            {isPunchedIn && !isPunchedOut && (
-              <div className="flex items-center justify-center gap-2 bg-amber-50 border border-amber-100 rounded-xl py-2 mb-4">
-                <Timer size={13} className="text-amber-500" />
-                <span className="text-xs font-bold text-amber-600">In progress since {todayRec.punchIn}</span>
+            {/* Session status banner */}
+            {isPunchedIn && !isPunchedOut && liveHours && (
+              <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5 mb-3">
+                <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-700">Session in progress</p>
+                  <p className="text-[10px] text-amber-500">Since {todayRec?.punchIn} · {liveHours} elapsed</p>
+                </div>
               </div>
             )}
             {isPunchedOut && (
-              <div className="flex items-center justify-center gap-2 bg-gray-50 rounded-xl py-2 mb-4">
-                <Clock size={13} className="text-gray-400" />
-                <span className="text-xs font-bold text-gray-600">{todayRec.hours}h worked today</span>
+              <div className="flex items-center gap-2.5 bg-green-50 border border-green-100 rounded-xl px-3.5 py-2.5 mb-3">
+                <CheckCircle2 size={15} className="text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-green-700">Day complete</p>
+                  <p className="text-[10px] text-green-500">{todayRec?.hours}h logged today</p>
+                </div>
               </div>
             )}
 
-            {/* Location denied warning */}
+            {/* Location error */}
             {(locState === 'denied' || locState === 'unavailable') && (
-              <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 mb-4">
+              <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-3.5 py-3 mb-3">
                 <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-bold text-red-700">
@@ -379,25 +456,25 @@ export default function AttendancePage() {
               </div>
             )}
 
-            {/* Getting location indicator */}
+            {/* Getting location */}
             {isGettingLocation && (
-              <div className="flex items-center justify-center gap-2 bg-blue-50 border border-blue-100 rounded-xl py-3 mb-4">
-                <div className="relative">
-                  <MapPin size={16} className="text-blue-500" />
+              <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-3 mb-3">
+                <div className="relative flex-shrink-0">
+                  <MapPin size={15} className="text-blue-500" />
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
                 </div>
-                <span className="text-xs font-bold text-blue-600">Getting your location…</span>
+                <p className="text-xs font-bold text-blue-600">Getting your location…</p>
               </div>
             )}
 
-            {/* Action button */}
+            {/* ── Action button ── */}
             {onApprovedLeave && !isPunchedIn ? (
-              <div className="w-full py-4 rounded-2xl bg-violet-50 border border-violet-200 text-violet-700 font-bold text-sm flex flex-col items-center justify-center gap-1.5">
-                <div className="flex items-center gap-2">
-                  <Calendar size={16} className="text-violet-500" />
-                  <span>You&apos;re on {leaveName} today</span>
+              <div className="w-full py-4 rounded-2xl bg-violet-50 border border-violet-200 flex flex-col items-center justify-center gap-1.5">
+                <div className="flex items-center gap-2 text-violet-700 font-bold text-sm">
+                  <Calendar size={15} className="text-violet-500" />
+                  You&apos;re on {leaveName} today
                 </div>
-                <span className="text-xs font-normal text-violet-500">Attendance cannot be marked while on approved leave.</span>
+                <span className="text-xs font-normal text-violet-400">Cannot mark attendance while on approved leave.</span>
               </div>
             ) : !isPunchedIn ? (
               <button
@@ -427,17 +504,12 @@ export default function AttendancePage() {
                   <><LogOut size={18} />Punch Out</>
                 )}
               </button>
-            ) : (
-              <div className="w-full py-3.5 rounded-2xl bg-green-50 border border-green-100 text-green-700 font-bold text-sm flex items-center justify-center gap-2">
-                <CheckCircle2 size={16} />
-                Day complete · {todayRec.hours}h logged
-              </div>
-            )}
+            ) : null}
 
-            {/* Location requirement notice */}
-            {(!isPunchedOut) && !onApprovedLeave && (
-              <p className="text-[11px] text-gray-400 text-center mt-2.5 flex items-center justify-center gap-1">
-                <MapPin size={10} />
+            {/* Location notice */}
+            {!isPunchedOut && !onApprovedLeave && (
+              <p className="text-[10px] text-gray-400 text-center mt-2 flex items-center justify-center gap-1">
+                <MapPin size={9} />
                 Location is required to mark attendance
               </p>
             )}
@@ -445,28 +517,30 @@ export default function AttendancePage() {
         </div>
 
         {/* ── 7-day stats ── */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2.5">
           {[
-            { label: 'On Time', val: `${onTimePct}%`,                                  icon: <Zap size={13} />,        color: 'text-green-600 bg-green-50'   },
-            { label: 'Avg In',  val: avgIn,                                             icon: <Clock size={13} />,      color: 'text-blue-600 bg-blue-50'     },
-            { label: 'Hours',   val: `${Math.round(totalHours * 10) / 10}h`,           icon: <TrendingUp size={13} />, color: 'text-violet-600 bg-violet-50' },
+            { label: 'On Time',  val: `${onTimePct}%`,                        icon: <Zap size={14} />,        bg: 'bg-emerald-500',  card: 'bg-emerald-50 border-emerald-100'   },
+            { label: 'Avg In',   val: avgIn,                                   icon: <Clock size={14} />,      bg: 'bg-blue-500',     card: 'bg-blue-50 border-blue-100'         },
+            { label: 'Hours',    val: `${Math.round(totalHours * 10) / 10}h`, icon: <TrendingUp size={14} />, bg: 'bg-violet-500',   card: 'bg-violet-50 border-violet-100'     },
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
-              <div className={`w-7 h-7 rounded-lg ${s.color} flex items-center justify-center mx-auto mb-2`}>
+            <div key={s.label} className={`rounded-2xl border ${s.card} p-3.5 text-center`}>
+              <div className={`w-8 h-8 rounded-xl ${s.bg} flex items-center justify-center mx-auto mb-2 text-white`}>
                 {s.icon}
               </div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{s.label}</p>
-              <p className="text-xl font-black text-gray-800 mt-0.5">{s.val}</p>
-              <p className="text-[10px] text-gray-400">last 7 days</p>
+              <p className="text-lg font-black text-gray-800 leading-none">{s.val}</p>
+              <p className="text-[10px] font-semibold text-gray-400 mt-1">{s.label}</p>
+              <p className="text-[9px] text-gray-300 mt-0.5">7 days</p>
             </div>
           ))}
         </div>
 
         {/* ── History ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-            <Calendar size={12} className="text-gray-400" />
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">History — Last 30 Days</p>
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+            <div className="w-6 h-6 bg-[#1B2B5E]/8 rounded-lg flex items-center justify-center">
+              <Calendar size={12} className="text-[#1B2B5E]" />
+            </div>
+            <p className="text-xs font-bold text-gray-600">History · Last 30 Days</p>
           </div>
 
           <div className="divide-y divide-gray-50">
@@ -483,41 +557,48 @@ export default function AttendancePage() {
                 <div
                   key={date}
                   className={`flex items-center px-4 py-3 gap-3 ${
-                    isToday ? 'bg-[#1B2B5E]/3 border-l-2 border-[#1B2B5E]' : isWeekend ? 'bg-gray-50/40' : ''
+                    isToday ? 'bg-[#1B2B5E]/[0.03] border-l-[3px] border-[#1B2B5E]' : isWeekend ? 'bg-gray-50/50' : ''
                   }`}
                 >
-                  {/* Date */}
+                  {/* Date column */}
                   <div className="w-14 flex-shrink-0">
-                    <p className={`text-xs font-semibold ${isToday ? 'text-[#1B2B5E]' : 'text-gray-600'}`}>{dayLabel}</p>
-                    <p className="text-[11px] text-gray-400">{dateLabel}</p>
+                    <p className={`text-xs font-bold ${isToday ? 'text-[#1B2B5E]' : isWeekend ? 'text-gray-400' : 'text-gray-700'}`}>{dayLabel}</p>
+                    <p className="text-[10px] text-gray-400">{dateLabel}</p>
                   </div>
 
                   {r ? (
                     <>
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="text-xs font-mono text-gray-600 flex-shrink-0">{r.punchIn ?? '—'}</span>
-                        <span className="text-gray-300 text-[10px]">→</span>
-                        <span className="text-xs font-mono text-gray-600 flex-shrink-0">{r.punchOut ?? '—'}</span>
-                        {r.hours > 0 && <span className="text-[11px] text-gray-400 flex-shrink-0">{r.hours}h</span>}
-                        {isToday && r.punchIn && !r.punchOut && (
-                          <span className="text-[10px] text-amber-500 font-medium animate-pulse">live</span>
+                      {/* Times */}
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="text-[11px] font-mono font-semibold text-gray-700 bg-gray-50 px-1.5 py-0.5 rounded-md flex-shrink-0">
+                          {r.punchIn ?? '—'}
+                        </span>
+                        <span className="text-gray-300 text-[9px] flex-shrink-0">→</span>
+                        <span className={`text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${r.punchOut ? 'text-gray-700 bg-gray-50' : 'text-gray-300 bg-gray-50'}`}>
+                          {r.punchOut ?? '—'}
+                        </span>
+                        {r.hours > 0 && (
+                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-0.5">{r.hours}h</span>
                         )}
-                        {/* Location dot */}
+                        {isToday && r.punchIn && !r.punchOut && (
+                          <span className="text-[9px] text-amber-500 font-bold animate-pulse flex-shrink-0">● live</span>
+                        )}
                         {r.punchInLocation && (
-                          <MapPin size={9} className="text-green-400 flex-shrink-0 ml-auto" title={fmtCoords(r.punchInLocation) ?? ''} />
+                          <MapPin size={9} className="text-emerald-400 flex-shrink-0 ml-auto" />
                         )}
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_CFG[r.status]?.bg} ${STATUS_CFG[r.status]?.text}`}>
-                        {STATUS_CFG[r.status]?.label}
+                      {/* Status badge */}
+                      <span className={`text-[9px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${STATUS_CFG[displayStatus(r)]?.bg} ${STATUS_CFG[displayStatus(r)]?.text}`}>
+                        {STATUS_CFG[displayStatus(r)]?.label}
                       </span>
                     </>
                   ) : (
                     <div className="flex-1 flex items-center justify-between">
-                      <span className="text-xs text-gray-300">
+                      <span className="text-[11px] text-gray-300">
                         {isToday ? 'Not punched in yet' : isWeekend ? 'Weekend' : 'No record'}
                       </span>
                       {!isToday && !isWeekend && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-400">Absent</span>
+                        <span className="text-[9px] font-bold px-2 py-1 rounded-full bg-red-50 text-red-400">Absent</span>
                       )}
                     </div>
                   )}
@@ -528,38 +609,46 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* ── Punch Out Confirmation Modal ── */}
+      {/* ── Punch Out Confirmation (bottom sheet on mobile) ── */}
       {showPunchOutConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-red-400 to-red-600" />
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center sm:items-center" onClick={() => setShowPunchOutConfirm(false)}>
+          <div
+            className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Handle bar (mobile) */}
+            <div className="sm:hidden flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            <div className="h-1 bg-gradient-to-r from-red-400 via-red-500 to-red-600 sm:rounded-none" />
             <div className="p-6">
-              <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <LogOut size={26} className="text-red-500" />
+              <div className="w-16 h-16 bg-red-50 border border-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <LogOut size={28} className="text-red-500" />
               </div>
-              <h3 className="text-lg font-black text-gray-900 text-center">Punch Out?</h3>
-              <p className="text-sm text-gray-500 text-center mt-1.5 leading-snug">
-                Punching out at <span className="font-bold text-gray-800">{liveTime}</span>.
+              <h3 className="text-xl font-black text-gray-900 text-center">Punch Out?</h3>
+              <p className="text-sm text-gray-500 text-center mt-2 leading-relaxed">
+                Leaving at <span className="font-black text-gray-800">{liveTime}</span>
                 {todayRec?.punchIn && (
-                  <> In since <span className="font-bold text-gray-800">{todayRec.punchIn}</span>.</>
-                )}
+                  <> · in since <span className="font-black text-gray-800">{todayRec.punchIn}</span>
+                  {liveHours && <span className="text-gray-400"> ({liveHours})</span>}</>
+                )}.
               </p>
-              <p className="text-xs text-gray-400 text-center mt-1 flex items-center justify-center gap-1">
-                <MapPin size={10} />Your location will be captured
+              <p className="text-[11px] text-gray-400 text-center mt-1.5 flex items-center justify-center gap-1">
+                <MapPin size={10} />Your location will be recorded
               </p>
-              <div className="flex gap-3 mt-5">
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowPunchOutConfirm(false)}
-                  className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
+                  className="flex-1 py-3.5 rounded-2xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => { setShowPunchOutConfirm(false); handlePunchOut(); }}
                   disabled={saving}
-                  className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-black active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-md shadow-red-500/20"
+                  className="flex-1 py-3.5 rounded-2xl bg-red-500 hover:bg-red-600 text-white text-sm font-black active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
                 >
-                  {saving ? <Loader2 size={15} className="animate-spin" /> : <LogOut size={15} />}
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
                   Punch Out
                 </button>
               </div>

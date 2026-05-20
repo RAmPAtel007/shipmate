@@ -80,7 +80,8 @@ function calcHours(pIn: string | null, pOut: string | null): number {
 
 function autoStatus(punchIn: string): AttendanceStatus {
   const [h, m] = punchIn.split(':').map(Number);
-  return (h > 9 || (h === 9 && m > 5)) ? 'late' : 'on_time';
+  // Late only if punch-in is at or after 11:00 AM
+  return (h * 60 + m) >= 11 * 60 ? 'late' : 'on_time';
 }
 
 // ─── Location cell (shared by table + card) ───────────────────────────────────
@@ -400,7 +401,15 @@ export default function AdminAttendancePage() {
     const record = records.get(user.uid) ?? null;
     let status: AttendanceStatus = 'missing';
     if (onLeaveUids.has(user.uid)) status = 'on_leave';
-    else if (record) status = record.status;
+    else if (record) {
+      // Recompute on_time/late from punch-in time so stale stored values
+      // don't override the current threshold (late = 11:00 AM+).
+      if (record.punchIn && (record.status === 'on_time' || record.status === 'late')) {
+        status = autoStatus(record.punchIn);
+      } else {
+        status = record.status;
+      }
+    }
     return { user, record, status, empIdx: i };
   });
 
