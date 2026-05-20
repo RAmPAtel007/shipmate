@@ -49,9 +49,15 @@ export default function LoginPage() {
       await sendPasswordReset(resetEmail.trim());
       setResetSent(true);
     } catch (err: any) {
-      setResetError(err?.message?.includes('user-not-found')
-        ? 'No account found with that email.'
-        : 'Failed to send reset email. Please try again.');
+      // Firebase v9 puts the code in err.code, e.g. "auth/user-not-found"
+      const code = err?.code ?? '';
+      if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
+        setResetError('No account found with that email. Check the address or contact HR.');
+      } else if (code === 'auth/too-many-requests') {
+        setResetError('Too many attempts. Please wait a few minutes and try again.');
+      } else {
+        setResetError('Failed to send reset email. Please try again.');
+      }
     } finally {
       setResetLoading(false);
     }
@@ -209,7 +215,7 @@ export default function LoginPage() {
                     type="email"
                     value={resetEmail}
                     onChange={e => setResetEmail(e.target.value)}
-                    placeholder="yourname@shipcube.com"
+                    placeholder="Enter your email address"
                     required
                     className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15 focus:border-[#1B2B5E] placeholder:text-gray-300"
                   />
@@ -221,7 +227,7 @@ export default function LoginPage() {
                     }
                   </button>
                   <p className="text-[11px] text-gray-400 text-center leading-snug">
-                    Works for existing Google accounts too — you&apos;ll be able to set a password after clicking the link.
+                    Works with any email — @shipcube.com, Gmail, or any other address registered to your account.
                   </p>
                 </form>
               )}
@@ -240,7 +246,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="yourname@shipcube.com"
+                placeholder="Enter your email address"
                 required
                 autoComplete="email"
                 autoFocus
@@ -302,11 +308,7 @@ export default function LoginPage() {
 
             {/* Domain note */}
             <p className="text-center text-gray-400 text-xs pt-1">
-              Access is restricted to{' '}
-              <span className="font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-md">
-                @shipcube.com
-              </span>{' '}
-              accounts only.{' '}
+              Sign in with your registered email — any domain is supported.{' '}
               <br className="sm:hidden" />
               Contact HR if you need access.
             </p>
