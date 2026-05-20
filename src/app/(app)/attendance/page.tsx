@@ -132,9 +132,10 @@ function CameraCapture({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const [camState, setCamState] = useState<'starting' | 'live' | 'captured' | 'error'>('starting');
-  const [preview,  setPreview]  = useState<string | null>(null);
+  const [camState,  setCamState]  = useState<'starting' | 'live' | 'captured' | 'error'>('starting');
+  const [preview,   setPreview]   = useState<string | null>(null);
   const [permDenied, setPermDenied] = useState(false);
+  const [errDetail,  setErrDetail]  = useState('');   // raw error name for debugging
 
   // Detect mobile OS for platform-specific instructions
   const isIOS     = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -150,10 +151,26 @@ function CameraCapture({
     setCamState('starting');
     setPreview(null);
     setPermDenied(false);
+    setErrDetail('');
 
-    // Call getUserMedia directly — same pattern as location's getCurrentPosition().
-    // The OS will show the native "Allow SHIPMATE to access camera?" popup
-    // automatically on first use. No pre-check needed.
+    // ── Secure context check ────────────────────────────────────────────────
+    // getUserMedia requires HTTPS (or localhost). If the app is accessed over
+    // plain HTTP on the phone, mediaDevices will be undefined.
+    if (!window.isSecureContext) {
+      setErrDetail('InsecureContext: app must be on HTTPS');
+      setPermDenied(false);
+      setCamState('error');
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrDetail('getUserMedia not available in this browser/context');
+      setPermDenied(false);
+      setCamState('error');
+      return;
+    }
+
+    // ── Direct getUserMedia call — triggers native OS permission popup ───────
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user' },
@@ -166,9 +183,11 @@ function CameraCapture({
       }
       setCamState('live');
     } catch (err: unknown) {
-      const name = (err as { name?: string }).name ?? '';
+      const name    = (err as { name?: string }).name    ?? 'UnknownError';
+      const message = (err as { message?: string }).message ?? '';
       const isDenied = name === 'NotAllowedError' || name === 'PermissionDeniedError';
       setPermDenied(isDenied);
+      setErrDetail(`${name}: ${message}`);
       setCamState('error');
     }
   }
@@ -237,7 +256,21 @@ function CameraCapture({
             </div>
             <p className="text-white font-black text-lg mb-2">Camera access needed</p>
 
-            {permDenied ? (
+            {/* Debug detail — helps identify exact failure */}
+            {errDetail ? (
+              <p className="text-white/30 text-[10px] font-mono mb-3 break-all">{errDetail}</p>
+            ) : null}
+
+            {!window.isSecureContext ? (
+              <p className="text-white/70 text-sm leading-relaxed mb-5">
+                This app must be opened over <span className="text-white font-bold">HTTPS</span> for camera to work.
+                Make sure you&apos;re using the <span className="font-bold">https://</span> URL, not http://.
+              </p>
+            ) : errDetail.includes('getUserMedia not available') ? (
+              <p className="text-white/70 text-sm leading-relaxed mb-5">
+                Camera API is not supported in this browser or context. Try opening the app in Chrome or Safari.
+              </p>
+            ) : permDenied ? (
               <>
                 <p className="text-white/60 text-sm leading-relaxed mb-5">
                   Your browser doesn&apos;t have camera permission. Follow these steps to enable it:
@@ -273,6 +306,7 @@ function CameraCapture({
                 Camera is unavailable on this device or browser. Make sure you&apos;re using a supported browser (Chrome, Safari, Firefox) and try again.
               </p>
             )}
+
 
             <button
               onClick={startCamera}
