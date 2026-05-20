@@ -12,7 +12,8 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { Avatar, Badge, RoleBadge, Button } from '@/components/ui';
 import { userService } from '@/lib/services/userService';
 import { storageService } from '@/lib/services/storageService';
-import { getDepartmentLabel, getRoleLabel } from '@/lib/utils/formatters';
+import { getRoleLabel } from '@/lib/utils/formatters';
+import { useDepartments } from '@/hooks/useDepartments';
 import { cn } from '@/lib/utils/cn';
 import type { ShipmateUser, Department, UserRole } from '@/lib/types';
 import toast from 'react-hot-toast';
@@ -31,6 +32,7 @@ const NAV: { id: Section; label: string; icon: typeof User; adminOnly?: boolean 
 
 function ProfileSection() {
   const { currentUser, refreshUser } = useAuth();
+  const { getDeptName } = useDepartments();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [name, setName]       = useState(currentUser?.name ?? '');
@@ -101,7 +103,7 @@ function ProfileSection() {
           <p className="text-sm text-gray-500">{currentUser.email}</p>
           <div className="flex items-center gap-2 mt-1">
             <RoleBadge role={currentUser.role} />
-            <Badge variant="neutral">{getDepartmentLabel(currentUser.department)}</Badge>
+            <Badge variant="neutral">{getDeptName(currentUser.department)}</Badge>
           </div>
         </div>
       </div>
@@ -144,7 +146,7 @@ function ProfileSection() {
         <div className="pt-2 border-t border-gray-100 space-y-3">
           {[
             { label: 'Email',      value: currentUser.email },
-            { label: 'Department', value: getDepartmentLabel(currentUser.department) },
+            { label: 'Department', value: getDeptName(currentUser.department) },
             { label: 'Role',       value: getRoleLabel(currentUser.role) },
             ...((currentUser as any).warehouseId ? [{
               label: 'Warehouse',
@@ -241,11 +243,11 @@ function NotificationsSection() {
 
 // ── Team management section ───────────────────────────────────────────────────
 
-const DEPARTMENTS: Department[] = ['ai-team', 'marketing', 'finance', 'hr'];
 const ROLES: UserRole[] = ['super_admin', 'hr_admin', 'manager', 'employee'];
 
 function TeamSection() {
   const { currentUser } = useAuth();
+  const { departments, getDeptName } = useDepartments();
   const [users, setUsers] = useState<ShipmateUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<ShipmateUser | null>(null);
@@ -321,7 +323,7 @@ function TeamSection() {
             <Avatar name={user.name} src={user.photoURL} size="sm" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-800 truncate">{user.name}</p>
-              <p className="text-xs text-gray-400">{getDepartmentLabel(user.department)}</p>
+              <p className="text-xs text-gray-400">{getDeptName(user.department)}</p>
             </div>
             <RoleBadge role={user.role} />
             {user.status === 'inactive' && <Badge variant="error">Inactive</Badge>}
@@ -376,8 +378,8 @@ function TeamSection() {
                   onChange={e => setEditDept(e.target.value as Department)}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2B5E]/15"
                 >
-                  {DEPARTMENTS.map(d => (
-                    <option key={d} value={d}>{getDepartmentLabel(d)}</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
               </div>

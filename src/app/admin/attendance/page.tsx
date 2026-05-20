@@ -10,6 +10,7 @@ import {
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ShipmateUser } from '@/lib/types';
+import { useDepartments } from '@/hooks/useDepartments';
 import toast from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -284,7 +285,7 @@ function EmployeeCard({ row, onCorrect }: { row: AttendanceRow; onCorrect: () =>
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{row.user.name}</p>
-          <p className="text-[11px] text-gray-400 capitalize">{row.user.department.replace(/-/g, ' ')}</p>
+          <p className="text-[11px] text-gray-400">{getDeptName(row.user.department)}</p>
         </div>
         <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`}/>
@@ -334,6 +335,7 @@ function EmployeeCard({ row, onCorrect }: { row: AttendanceRow; onCorrect: () =>
 
 export default function AdminAttendancePage() {
   const { currentUser } = useAuth();
+  const { getDeptName } = useDepartments();
 
   const [users,        setUsers]        = useState<ShipmateUser[]>([]);
   const [records,      setRecords]      = useState<Map<string, AttendanceRecord>>(new Map());
@@ -420,7 +422,7 @@ export default function AdminAttendancePage() {
 
   const filtered = rows.filter(r => {
     const q = search.toLowerCase();
-    const matchSearch = !q || r.user.name.toLowerCase().includes(q) || r.user.department.toLowerCase().includes(q);
+    const matchSearch = !q || r.user.name.toLowerCase().includes(q) || getDeptName(r.user.department).toLowerCase().includes(q);
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -430,7 +432,7 @@ export default function AdminAttendancePage() {
     const header = 'Employee,Department,TC,Punch In,Punch Out,Hours,Status,Corrected By';
     const csvRows = rows.map(r => [
       `"${r.user.name}"`,
-      r.user.department,
+      getDeptName(r.user.department),
       `TC-${1042 + r.empIdx}`,
       r.record?.punchIn  ?? '',
       r.record?.punchOut ?? '',
@@ -624,14 +626,14 @@ export default function AdminAttendancePage() {
                               </div>
                               <div>
                                 <p className="text-sm font-semibold text-gray-900 leading-tight">{row.user.name}</p>
-                                <p className="text-[11px] text-gray-400">TC-{1042 + row.empIdx} · {row.user.department}</p>
+                                <p className="text-[11px] text-gray-400">TC-{1042 + row.empIdx} · {getDeptName(row.user.department)}</p>
                               </div>
                             </div>
                           </td>
 
                           {/* Department */}
                           <td className="px-3 py-3.5">
-                            <span className="text-sm text-gray-600 capitalize">{row.user.department.replace(/-/g, ' ')}</span>
+                            <span className="text-sm text-gray-600">{getDeptName(row.user.department)}</span>
                           </td>
 
                           {/* Punch In */}

@@ -16,6 +16,7 @@ import {
 import { db } from '@/lib/firebase/config';
 import { userService } from '@/lib/services/userService';
 import { getRoleLabel } from '@/lib/utils/formatters';
+import { useDepartments } from '@/hooks/useDepartments';
 import { createEmployeeAccount } from '@/lib/firebase/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -123,6 +124,7 @@ function EmployeeCard({
 }: {
   user: ShipmateUser; empIdx: number; selected: boolean; onClick: () => void;
 }) {
+  const { getDeptName } = useDepartments();
   const pal = avatarPalette(user.name);
   const tcId = (user as any).tcId ?? `TC-${1042 + empIdx}`;
   return (
@@ -148,7 +150,7 @@ function EmployeeCard({
       </p>
       <div className="mt-3 space-y-1">
         <p className="text-[11px] text-gray-400">
-          {tcId} · {user.department ? titleCase(user.department) : '—'}
+          {tcId} · {user.department ? getDeptName(user.department) : '—'}
         </p>
         {(user as any).location && (
           <p className="text-[11px] text-gray-400 flex items-center gap-1">
@@ -163,6 +165,7 @@ function EmployeeCard({
 // ─── Tab: Profile ─────────────────────────────────────────────────────────────
 
 function ProfileTab({ user, users }: { user: ShipmateUser; users: ShipmateUser[] }) {
+  const { getDeptName } = useDepartments();
   const u = user as any;
   const manager = users.find(m => m.uid === u.managerId);
   const rows = (label: string, val: string | undefined, icon?: React.ReactNode) =>
@@ -206,7 +209,7 @@ function ProfileTab({ user, users }: { user: ShipmateUser; users: ShipmateUser[]
         <div className="bg-gray-50 rounded-xl px-4">
           {rows('Employee ID', (u.tcId ?? `TC-${1042}`), <Hash size={11}/>)}
           {rows('Job Title', u.jobTitle, <Briefcase size={11}/>)}
-          {rows('Department', u.department ? titleCase(u.department) : undefined, <Building2 size={11}/>)}
+          {rows('Department', u.department ? getDeptName(u.department) : undefined, <Building2 size={11}/>)}
           {rows('Role', getRoleLabel(user.role), <Shield size={11}/>)}
           {rows('Joining Date', u.joinDate ?? u.joinedAt, <Calendar size={11}/>)}
           {rows('Manager', manager?.name, <User size={11}/>)}
@@ -643,6 +646,7 @@ function EmployeeDetailPanel({
   user: ShipmateUser; users: ShipmateUser[]; empIdx: number;
   onClose: () => void; onEdit: () => void; onDeleted: () => void;
 }) {
+  const { getDeptName } = useDepartments();
   const [tab, setTab] = useState<DetailTab>('profile');
   const [resetSending, setResetSending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -741,7 +745,7 @@ function EmployeeDetailPanel({
           {user.department && (
             <span className="text-[11px] text-white/50 flex items-center gap-1">
               <Building2 size={10} className="text-white/30"/>
-              {titleCase(user.department)}
+              {getDeptName(user.department)}
             </span>
           )}
           <StatusBadge status={(user as any).status ?? 'active'}/>
@@ -814,6 +818,7 @@ function EmployeeDetailPanel({
 // ─── Tab Access Manager (top-level page tab) ─────────────────────────────────
 
 function TabAccessManager({ users }: { users: ShipmateUser[] }) {
+  const { getDeptName } = useDepartments();
   const [saving, setSaving] = useState<string | null>(null); // "uid:key"
   const [search, setSearch] = useState('');
 
@@ -906,7 +911,7 @@ function TabAccessManager({ users }: { users: ShipmateUser[] }) {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p>
                       <p className="text-[11px] text-gray-400 truncate">
-                        {user.department ? titleCase(user.department) : '—'} · {getRoleLabel(user.role)}
+                        {user.department ? getDeptName(user.department) : '—'} · {getRoleLabel(user.role)}
                       </p>
                     </div>
                   </div>

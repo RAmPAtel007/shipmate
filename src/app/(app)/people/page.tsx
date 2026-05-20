@@ -7,17 +7,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
 import { Avatar, Badge, RoleBadge, EmptyState } from '@/components/ui';
 import { userService } from '@/lib/services/userService';
-import { getDepartmentLabel, formatDate, formatBirthdayDisplay } from '@/lib/utils/formatters';
+import { formatDate, formatBirthdayDisplay } from '@/lib/utils/formatters';
+import { useDepartments } from '@/hooks/useDepartments';
 import { chatService } from '@/lib/services/chatService';
-import type { ShipmateUser, Department } from '@/lib/types';
-
-const DEPARTMENTS: { label: string; value: Department | 'all' }[] = [
-  { label: 'All',       value: 'all' },
-  { label: 'AI Team',   value: 'ai-team' },
-  { label: 'Marketing', value: 'marketing' },
-  { label: 'Finance',   value: 'finance' },
-  { label: 'HR',        value: 'hr' },
-];
+import type { ShipmateUser } from '@/lib/types';
 
 const DEPT_COLORS: Record<string, string> = {
   'ai-team':   'bg-purple-100 text-purple-700',
@@ -49,6 +42,7 @@ function UserProfileModal({
 }) {
   const { currentUser } = useAuth();
   const { isHRorAdmin } = useRole();
+  const { getDeptName } = useDepartments();
   const isSelf = currentUser?.uid === user.uid;
 
   return (
@@ -81,7 +75,7 @@ function UserProfileModal({
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 <RoleBadge role={user.role} />
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${DEPT_COLORS[user.department] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {getDepartmentLabel(user.department)}
+                  {getDeptName(user.department)}
                 </span>
                 {user.status === 'inactive' && <Badge variant="error">Inactive</Badge>}
               </div>
@@ -201,6 +195,7 @@ function UserCard({
   isSelf: boolean;
   dmLoading: boolean;
 }) {
+  const { getDeptName } = useDepartments();
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 overflow-hidden group">
       <button onClick={onClick} className="w-full p-5 text-left">
@@ -217,7 +212,7 @@ function UserCard({
           <div className="min-w-0 w-full">
             <p className="font-bold text-gray-900 text-base truncate">{user.name}</p>
             <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full mt-1 ${DEPT_COLORS[user.department] ?? 'bg-gray-100 text-gray-600'}`}>
-              {getDepartmentLabel(user.department)}
+              {getDeptName(user.department)}
             </span>
             {(user as any).warehouseId && WAREHOUSE_MAP[(user as any).warehouseId] && (
               <p className="text-[11px] text-gray-400 mt-1">
@@ -270,11 +265,12 @@ function SkeletonCard() {
 export default function PeoplePage() {
   const { currentUser } = useAuth();
   const router = useRouter();
+  const { departments, getDeptName } = useDepartments();
 
   const [users, setUsers] = useState<ShipmateUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState<Department | 'all'>('all');
+  const [deptFilter, setDeptFilter] = useState<string>('all');
   const [selectedUser, setSelectedUser] = useState<ShipmateUser | null>(null);
   const [dmLoading, setDmLoading] = useState<string | null>(null);
 
@@ -298,7 +294,7 @@ export default function PeoplePage() {
   }, [users, search, deptFilter]);
 
   const deptCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: users.length };
+    const counts: Record<string, number> = {};
     for (const u of users) {
       counts[u.department] = (counts[u.department] ?? 0) + 1;
     }
@@ -360,25 +356,25 @@ export default function PeoplePage() {
 
       {/* Department filter chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-6 no-scrollbar">
-        {DEPARTMENTS.map(d => {
-          const count = deptCounts[d.value] ?? 0;
-          const isActive = deptFilter === d.value;
+        {[{ id: 'all', name: 'All' }, ...departments].map(d => {
+          const count = deptCounts[d.id] ?? 0;
+          const isActive = deptFilter === d.id;
           return (
             <button
-              key={d.value}
-              onClick={() => setDeptFilter(d.value)}
+              key={d.id}
+              onClick={() => setDeptFilter(d.id)}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-all ${
                 isActive
                   ? 'bg-[#1B2B5E] text-white shadow-sm'
                   : 'bg-white text-gray-600 border border-gray-200 hover:border-[#1B2B5E]/40'
               }`}
             >
-              {d.label}
-              {!loading && count > 0 && (
+              {d.name}
+              {!loading && (d.id === 'all' ? users.length : count) > 0 && (
                 <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
                   isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
                 }`}>
-                  {count}
+                  {d.id === 'all' ? users.length : count}
                 </span>
               )}
             </button>

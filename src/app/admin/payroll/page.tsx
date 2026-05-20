@@ -14,6 +14,7 @@ import {
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ShipmateUser } from '@/lib/types';
+import { useDepartments } from '@/hooks/useDepartments';
 import toast from 'react-hot-toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -493,6 +494,7 @@ function FSelect({ value, onChange, opts }: { value:string; onChange:(v:string)=
 function USPayslipModal({ user, profile, entry, onClose }: {
   user:ShipmateUser; profile:PayrollProfile; entry:PayrollEntry; onClose:()=>void;
 }) {
+  const { getDeptName } = useDepartments();
   const p        = calcUSPayroll(profile, entry);
   const basis    = profile.payBasis ?? 'monthly';
   const isWeekly = basis === 'weekly';
@@ -609,6 +611,7 @@ function USPayslipModal({ user, profile, entry, onClose }: {
 function INPayslipModal({ user, profile, entry, onClose }: {
   user:ShipmateUser; profile:PayrollProfile; entry:PayrollEntry; onClose:()=>void;
 }) {
+  const { getDeptName } = useDepartments();
   const p = calcINPayroll(profile, entry);
   const ctc = (p.gross + p.erPF + p.gratuity) * 12;
   const initials = user.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
@@ -855,7 +858,7 @@ function EditPayrollModal({
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm">{initials}</div>
             <div>
               <p className="text-white font-black text-base">{user.name}</p>
-              <p className="text-white/50 text-xs">{user.email} · {user.department}</p>
+              <p className="text-white/50 text-xs">{user.email} · {getDeptName(user.department)}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/50 hover:text-white mt-1"><X size={20}/></button>
@@ -1280,6 +1283,7 @@ function EditPayrollModal({
 
 export default function AdminPayrollPage() {
   const { currentUser } = useAuth();
+  const { getDeptName } = useDepartments();
 
   const [country, setCountry]       = useState<Country>('US');
   const [search, setSearch]         = useState('');
@@ -1357,13 +1361,13 @@ export default function AdminPayrollPage() {
   }, [users, profiles, entries, country]);
 
   const filtered = countryEmps.filter(({ user }) =>
-    [user.name, user.email, user.department].some(v =>
+    [user.name, user.email, getDeptName(user.department)].some(v =>
       v?.toLowerCase().includes(search.toLowerCase())
     )
   );
 
   const filteredUnassigned = unassigned.filter(u =>
-    [u.name, u.email, u.department].some(v =>
+    [u.name, u.email, getDeptName(u.department)].some(v =>
       v?.toLowerCase().includes(search.toLowerCase())
     )
   );
@@ -1388,7 +1392,7 @@ export default function AdminPayrollPage() {
       dataRows = countryEmps.map(({ user, profile, entry }) => {
         const c = calcUSPayroll(profile, entry);
         return [
-          str(user.name), str(user.email), str(user.department),
+          str(user.name), str(user.email), getDeptName(user.department),
           str(profile.usState), str(profile.payBasis ?? 'monthly'),
           num(profile.baseSalary),
           num(entry.otHours), num(entry.otPay), num(entry.adjustments),
@@ -1409,7 +1413,7 @@ export default function AdminPayrollPage() {
       dataRows = countryEmps.map(({ user, profile, entry }) => {
         const c = calcINPayroll(profile, entry);
         return [
-          str(user.name), str(user.email), str(user.department), str(profile.inState),
+          str(user.name), str(user.email), getDeptName(user.department), str(profile.inState),
           num(profile.basic), num(profile.hra), num(profile.specialAllowance),
           num(Math.round((profile.lta ?? 0) / 12)), num(profile.medical),
           num(entry.otPay), num(entry.adjustments),
@@ -1610,7 +1614,7 @@ export default function AdminPayrollPage() {
                                   <div className="w-8 h-8 rounded-full bg-[#1B2B5E]/8 flex items-center justify-center text-xs font-bold text-[#1B2B5E] flex-shrink-0">{initials}</div>
                                   <div>
                                     <p className="text-sm font-semibold text-gray-900 leading-tight">{user.name}</p>
-                                    <p className="text-[11px] text-gray-400">{user.department} · {profile.usState}</p>
+                                    <p className="text-[11px] text-gray-400">{getDeptName(user.department)} · {profile.usState}</p>
                                   </div>
                                 </div>
                               </td>
@@ -1646,7 +1650,7 @@ export default function AdminPayrollPage() {
                                   <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-xs font-bold text-orange-600 flex-shrink-0">{initials}</div>
                                   <div>
                                     <p className="text-sm font-semibold text-gray-900 leading-tight">{user.name}</p>
-                                    <p className="text-[11px] text-gray-400">{user.department} · {profile.inState}</p>
+                                    <p className="text-[11px] text-gray-400">{getDeptName(user.department)} · {profile.inState}</p>
                                   </div>
                                 </div>
                               </td>
@@ -1695,7 +1699,7 @@ export default function AdminPayrollPage() {
                           <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-400 flex-shrink-0">{initials}</div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-gray-700">{user.name}</p>
-                            <p className="text-[11px] text-gray-400">{user.email} · {user.department}</p>
+                            <p className="text-[11px] text-gray-400">{user.email} · {getDeptName(user.department)}</p>
                           </div>
                           <button onClick={() => setEditTarget(user)}
                             className="flex items-center gap-1.5 text-xs font-bold text-[#1B2B5E] bg-[#1B2B5E]/8 hover:bg-[#1B2B5E]/15 px-3 py-1.5 rounded-lg transition-colors">

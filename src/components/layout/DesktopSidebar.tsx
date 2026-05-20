@@ -9,7 +9,7 @@ import {
   Clock, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getDepartmentLabel } from '@/lib/utils/formatters';
+import { useDepartments } from '@/hooks/useDepartments';
 import type { ShipmateUser, TabKey } from '@/lib/types';
 
 // Always visible regardless of tabAccess
@@ -42,6 +42,7 @@ export function DesktopSidebar({
 }: Props) {
   const { signOutUser } = useAuth();
   const router = useRouter();
+  const { getDeptName } = useDepartments();
   const isAdmin = ['super_admin', 'hr_admin'].includes(currentUser.role);
   const initials = currentUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
@@ -155,7 +156,7 @@ export function DesktopSidebar({
           <div className="flex-1 min-w-0">
             <p className="text-white text-sm font-semibold truncate leading-tight">{currentUser.name}</p>
             <p className="text-[#8d9cb8] text-[11px] truncate leading-tight">
-              {getDepartmentLabel(currentUser.department)}
+              {getDeptName(currentUser.department)}
             </p>
           </div>
 
