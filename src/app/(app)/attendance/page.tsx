@@ -151,30 +151,12 @@ function CameraCapture({
     setPreview(null);
     setPermDenied(false);
 
-    // Always call getUserMedia directly — this triggers the native OS permission
-    // popup on first use (just like location does). We only skip it if we can
-    // confirm via the Permissions API that the user has explicitly denied it,
-    // because in that case the browser silently blocks getUserMedia anyway.
-    let alreadyDenied = false;
-    if (navigator.permissions) {
-      try {
-        const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
-        alreadyDenied = status.state === 'denied';
-      } catch {
-        // Permissions API not supported on this browser — that's fine
-      }
-    }
-
-    if (alreadyDenied) {
-      setPermDenied(true);
-      setCamState('error');
-      return;
-    }
-
-    // This call triggers the native "Allow camera?" popup on first use
+    // Call getUserMedia directly — same pattern as location's getCurrentPosition().
+    // The OS will show the native "Allow SHIPMATE to access camera?" popup
+    // automatically on first use. No pre-check needed.
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: 'user' },
         audio: false,
       });
       streamRef.current = stream;
