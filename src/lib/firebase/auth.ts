@@ -118,7 +118,7 @@ export async function createEmployeeAccount(data: {
   // Write Firestore profile using the primary db instance
   await setDoc(doc(db, 'users', uid), {
     name: data.name,
-    email: data.email,
+    email: data.email.toLowerCase(),   // always lowercase so password-reset lookup matches
     department: data.department,
     role: data.role,
     status: 'active',
@@ -166,9 +166,26 @@ export async function updateUserProfile(
 }
 
 // ─── Password reset ────────────────────────────────────────────────────────────
-// Works for both email/password accounts AND existing Google Sign-In accounts.
-// Firebase will send a reset link that lets the user set (or change) their password.
+// 1. Verify the email exists in Firestore (our actual user database).
+//    This handles Firebase's Email Enumeration Protection which silently
+//    swallows errors for non-existent accounts, making it look like the
+//    email was sent when it wasn't.
+// 2. If found, call Firebase's sendPasswordResetEmail — works for any domain.
 
 export async function sendPasswordReset(email: string): Promise<void> {
-  await firebaseSendPasswordReset(auth, email);
+  const normalised = email.trim().toLowerCase();
+
+  // Check our Firestore users collection first
+  const q = query(collection(db, 'users'), where('email', '==', normalised));
+  const snap = await getDocs(q);
+
+  if (snap.empty) {
+    // Throw with the same code shape Firebase uses so the UI handles it uniformly
+    const err = new Error('No account found with that email.') as any;
+    err.code = 'auth/user-not-found';
+    throw err;
+  }
+
+  // Account exists — send the reset email (works for any email domain)
+  await firebaseSendPasswordReset(auth, normalised);
 }
