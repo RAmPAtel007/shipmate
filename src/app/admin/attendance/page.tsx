@@ -270,6 +270,7 @@ function CorrectionModal({
 // ─── Mobile Employee Card ─────────────────────────────────────────────────────
 
 function EmployeeCard({ row, onCorrect }: { row: AttendanceRow; onCorrect: () => void }) {
+  const { getDeptName } = useDepartments();
   const cfg      = STATUS_CFG[row.status];
   const initials = row.user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
