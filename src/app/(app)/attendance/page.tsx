@@ -409,7 +409,7 @@ export default function AttendancePage() {
       [location, photoUrl] = await Promise.all([
         requestLocation(),
         storageService.uploadAttendancePhoto(currentUser.uid, today, 'in', photoBlob)
-          .catch(() => null), // photo failure is non-blocking
+          .catch((e) => { console.error('Photo upload failed:', e); toast.error('Photo upload failed — punch-in saved without photo.'); return null; }),
       ]);
       setLocState('idle');
     } catch (err) {
@@ -460,7 +460,7 @@ export default function AttendancePage() {
       [location, photoUrl] = await Promise.all([
         requestLocation(),
         storageService.uploadAttendancePhoto(currentUser.uid, today, 'out', photoBlob)
-          .catch(() => null),
+          .catch((e) => { console.error('Photo upload failed:', e); toast.error('Photo upload failed — punch-out saved without photo.'); return null; }),
       ]);
       setLocState('idle');
     } catch (err) {

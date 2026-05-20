@@ -214,9 +214,12 @@ export const storageService = {
     type: 'in' | 'out',
     blob: Blob,
   ): Promise<string> {
-    const file = new File([blob], `${date}_${type}.jpg`, { type: 'image/jpeg' });
+    // Wrap blob as File so compressImage can inspect type/name
+    const raw = new File([blob], `${date}_${type}.jpg`, { type: 'image/jpeg' });
+    // Compress to ≤1 MB so we stay well under the 5 MB storage rule limit
+    const compressed = await storageService.compressImage(raw, 1);
     const path = `attendance-photos/${uid}/${date}_${type}.jpg`;
-    const { url } = await directUpload(path, file);
+    const { url } = await directUpload(path, compressed);
     return url;
   },
 
