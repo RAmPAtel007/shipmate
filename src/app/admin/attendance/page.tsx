@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  Download, Bell, Search, Edit2, X, Loader2, Clock, MapPin, SlidersHorizontal,
+  Download, Bell, Search, Edit2, X, Loader2, Clock, MapPin, SlidersHorizontal, Camera,
 } from 'lucide-react';
 import {
   collection, onSnapshot, query, where, doc, setDoc, serverTimestamp,
@@ -36,6 +36,8 @@ interface AttendanceRecord {
   correctedAt?: any;
   punchInLocation?: GeoPoint | null;
   punchOutLocation?: GeoPoint | null;
+  punchInPhoto?: string;
+  punchOutPhoto?: string;
 }
 
 interface AttendanceRow {
@@ -121,6 +123,98 @@ function LocationLinks({ record }: { record: AttendanceRecord | null }) {
           <MapPin size={11} className="flex-shrink-0"/><span>Out: —</span>
         </span>
       ) : null}
+    </div>
+  );
+}
+
+// ─── Photo Thumbnails ─────────────────────────────────────────────────────────
+
+function PhotoThumbs({
+  record,
+  onView,
+}: {
+  record: AttendanceRecord | null;
+  onView: (url: string, label: string) => void;
+}) {
+  if (!record || (!record.punchInPhoto && !record.punchOutPhoto)) {
+    return <span className="text-gray-300 text-xs">—</span>;
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      {record.punchInPhoto && (
+        <button
+          onClick={() => onView(record.punchInPhoto!, 'Punch In Photo')}
+          title="View punch-in selfie"
+          className="relative group flex-shrink-0"
+        >
+          <img
+            src={record.punchInPhoto}
+            alt="Punch in"
+            className="w-8 h-8 rounded-lg object-cover border-2 border-emerald-300 hover:border-emerald-500 transition-all shadow-sm"
+          />
+          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center">
+            <span className="text-[6px] text-white font-black">IN</span>
+          </span>
+        </button>
+      )}
+      {record.punchOutPhoto && (
+        <button
+          onClick={() => onView(record.punchOutPhoto!, 'Punch Out Photo')}
+          title="View punch-out selfie"
+          className="relative group flex-shrink-0"
+        >
+          <img
+            src={record.punchOutPhoto}
+            alt="Punch out"
+            className="w-8 h-8 rounded-lg object-cover border-2 border-red-300 hover:border-red-500 transition-all shadow-sm"
+          />
+          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white flex items-center justify-center">
+            <span className="text-[6px] text-white font-black">OUT</span>
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Photo Lightbox ───────────────────────────────────────────────────────────
+
+function PhotoLightbox({
+  url,
+  label,
+  onClose,
+}: {
+  url: string;
+  label: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/80 z-[70] flex flex-col items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-2xl overflow-hidden shadow-2xl max-w-sm w-full"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-[#1B2B5E]/8 rounded-lg flex items-center justify-center">
+              <Camera size={13} className="text-[#1B2B5E]" />
+            </div>
+            <p className="text-sm font-bold text-gray-800">{label}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        {/* Photo */}
+        <img src={url} alt={label} className="w-full object-cover" />
+      </div>
     </div>
   );
 }
@@ -269,7 +363,15 @@ function CorrectionModal({
 
 // ─── Mobile Employee Card ─────────────────────────────────────────────────────
 
-function EmployeeCard({ row, onCorrect }: { row: AttendanceRow; onCorrect: () => void }) {
+function EmployeeCard({
+  row,
+  onCorrect,
+  onViewPhoto,
+}: {
+  row: AttendanceRow;
+  onCorrect: () => void;
+  onViewPhoto: (url: string, label: string) => void;
+}) {
   const { getDeptName } = useDepartments();
   const cfg      = STATUS_CFG[row.status];
   const initials = row.user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
@@ -316,6 +418,14 @@ function EmployeeCard({ row, onCorrect }: { row: AttendanceRow; onCorrect: () =>
         </div>
       </div>
 
+      {/* Photos row (if any) */}
+      {(row.record?.punchInPhoto || row.record?.punchOutPhoto) && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <Camera size={11} className="text-gray-300 flex-shrink-0" />
+          <PhotoThumbs record={row.record} onView={onViewPhoto} />
+        </div>
+      )}
+
       {/* Location + action row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -347,6 +457,7 @@ export default function AdminAttendancePage() {
   const [correctRow,   setCorrectRow]   = useState<AttendanceRow | null>(null);
   const [refreshSecs,  setRefreshSecs]  = useState(0);
   const [showFilters,  setShowFilters]  = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<{ url: string; label: string } | null>(null);
   const lastRefresh = useRef<Date>(new Date());
 
   const today = todayISO();
@@ -605,6 +716,7 @@ export default function AdminAttendancePage() {
                       <th className="px-3 py-3 text-center">Punch Out</th>
                       <th className="px-3 py-3 text-center">Hours</th>
                       <th className="px-3 py-3">Location</th>
+                      <th className="px-3 py-3">Photos</th>
                       <th className="px-3 py-3">Status</th>
                       <th className="px-3 py-3 text-right">Action</th>
                     </tr>
@@ -663,6 +775,14 @@ export default function AdminAttendancePage() {
                             <LocationLinks record={row.record}/>
                           </td>
 
+                          {/* Photos */}
+                          <td className="px-3 py-3.5">
+                            <PhotoThumbs
+                              record={row.record}
+                              onView={(url, label) => setPhotoPreview({ url, label })}
+                            />
+                          </td>
+
                           {/* Status */}
                           <td className="px-3 py-3.5">
                             <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
@@ -685,7 +805,7 @@ export default function AdminAttendancePage() {
                     })}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="py-16 text-center">
+                        <td colSpan={9} className="py-16 text-center">
                           <Clock size={28} className="text-gray-200 mx-auto mb-2"/>
                           <p className="text-sm text-gray-400">No attendance records match your filter</p>
                         </td>
@@ -709,6 +829,7 @@ export default function AdminAttendancePage() {
                         key={row.user.uid}
                         row={row}
                         onCorrect={() => setCorrectRow(row)}
+                        onViewPhoto={(url, label) => setPhotoPreview({ url, label })}
                       />
                     ))}
                   </div>
@@ -734,6 +855,15 @@ export default function AdminAttendancePage() {
           row={correctRow}
           adminName={currentUser.name}
           onClose={() => setCorrectRow(null)}
+        />
+      )}
+
+      {/* ── Photo Lightbox ── */}
+      {photoPreview && (
+        <PhotoLightbox
+          url={photoPreview.url}
+          label={photoPreview.label}
+          onClose={() => setPhotoPreview(null)}
         />
       )}
     </div>

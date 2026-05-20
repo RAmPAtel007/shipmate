@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   LogIn, LogOut, Clock, CheckCircle2, Calendar,
   Loader2, TrendingUp, Timer, Zap, MapPin, AlertTriangle,
+  Camera, RotateCcw, Check, X, CameraOff,
 } from 'lucide-react';
 import {
   collection, query, where, onSnapshot,
@@ -11,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
+import { storageService } from '@/lib/services/storageService';
 import toast from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,6 +32,8 @@ interface AttendanceRecord {
   otHours?: number;
   punchInLocation?: GeoPoint;
   punchOutLocation?: GeoPoint;
+  punchInPhoto?: string;
+  punchOutPhoto?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -100,6 +104,202 @@ function requestLocation(): Promise<GeoPoint> {
   });
 }
 
+// ─── Camera Capture Modal ─────────────────────────────────────────────────────
+
+function CameraCapture({
+  punchType,
+  onCapture,
+  onCancel,
+}: {
+  punchType: 'in' | 'out';
+  onCapture: (blob: Blob) => void;
+  onCancel: () => void;
+}) {
+  const videoRef  = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const [camState, setCamState] = useState<'starting' | 'live' | 'captured' | 'error'>('starting');
+  const [preview,  setPreview]  = useState<string | null>(null);
+  const [errMsg,   setErrMsg]   = useState('');
+
+  useEffect(() => {
+    startCamera();
+    return () => stopStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function startCamera() {
+    setCamState('starting');
+    setPreview(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCamState('live');
+    } catch (err: unknown) {
+      const name = (err as { name?: string }).name ?? '';
+      setErrMsg(
+        name === 'NotAllowedError' || name === 'PermissionDeniedError'
+          ? 'Camera permission denied. Please allow camera access in your browser settings.'
+          : 'Camera is unavailable on this device.',
+      );
+      setCamState('error');
+    }
+  }
+
+  function stopStream() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }
+
+  function takePhoto() {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // Mirror-flip so the selfie looks natural
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    ctx.restore();
+    setPreview(canvas.toDataURL('image/jpeg', 0.85));
+    setCamState('captured');
+    stopStream();
+  }
+
+  function retake() {
+    setPreview(null);
+    startCamera();
+  }
+
+  function confirmPhoto() {
+    canvasRef.current?.toBlob(
+      blob => { if (blob) onCapture(blob); },
+      'image/jpeg',
+      0.85,
+    );
+  }
+
+  const label = punchType === 'in' ? 'Punch In' : 'Punch Out';
+  const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
+
+  return (
+    <div className="fixed inset-0 bg-black z-[60] flex flex-col">
+
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 py-3 bg-black/70 flex-shrink-0">
+        <button
+          onClick={() => { stopStream(); onCancel(); }}
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+        >
+          <X size={18} />
+        </button>
+        <p className="text-white font-bold text-sm tracking-wide">{label} · Take a Selfie</p>
+        <div className="w-9" />
+      </div>
+
+      {/* Viewfinder */}
+      <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
+        {camState === 'error' ? (
+          <div className="text-center px-8 py-10">
+            <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CameraOff size={28} className="text-red-400" />
+            </div>
+            <p className="text-white font-bold text-base">{errMsg}</p>
+            <button
+              onClick={startCamera}
+              className="mt-4 px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : preview ? (
+          <img src={preview} alt="preview" className="w-full h-full object-cover" />
+        ) : (
+          <>
+            {camState === 'starting' && (
+              <div className="absolute inset-0 flex items-center justify-center z-10">
+                <Loader2 size={36} className="text-white/40 animate-spin" />
+              </div>
+            )}
+            {/* Mirror flip via CSS so live preview looks like a selfie */}
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
+              playsInline
+              muted
+            />
+          </>
+        )}
+
+        {/* Face-guide overlay when live */}
+        {camState === 'live' && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-52 h-64 rounded-full border-2 border-white/30 border-dashed" />
+          </div>
+        )}
+
+        <canvas ref={canvasRef} className="hidden" />
+      </div>
+
+      {/* Controls */}
+      <div className="flex-shrink-0 bg-black/70 px-6 py-8 flex items-center justify-center gap-8">
+        {camState === 'live' ? (
+          /* Shutter button */
+          <button
+            onClick={takePhoto}
+            className="w-20 h-20 rounded-full bg-white active:scale-95 transition-transform shadow-xl flex items-center justify-center"
+          >
+            <div className="w-[68px] h-[68px] rounded-full bg-white border-4 border-gray-300" />
+          </button>
+        ) : camState === 'captured' ? (
+          /* Retake / Use */
+          <>
+            <button
+              onClick={retake}
+              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20 transition-colors"
+            >
+              <RotateCcw size={16} /> Retake
+            </button>
+            <button
+              onClick={confirmPhoto}
+              className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-all`}
+            >
+              <Check size={18} /> Use Photo
+            </button>
+          </>
+        ) : camState === 'error' ? (
+          <button
+            onClick={() => { stopStream(); onCancel(); }}
+            className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm"
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
+
+      {/* Hint */}
+      {camState === 'live' && (
+        <p className="text-center text-white/30 text-[11px] pb-3 flex-shrink-0">
+          Position your face in the circle and tap the shutter
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AttendancePage() {
@@ -113,6 +313,8 @@ export default function AttendancePage() {
   const [onApprovedLeave, setOnApprovedLeave] = useState(false);
   const [leaveName, setLeaveName] = useState('');
   const [showPunchOutConfirm, setShowPunchOutConfirm] = useState(false);
+  // 'in' | 'out' | null — which punch type the camera is open for
+  const [cameraFor, setCameraFor] = useState<'in' | 'out' | null>(null);
 
   const today       = todayISO();
   const todayRec    = records[today] ?? null;
@@ -182,16 +384,23 @@ export default function AttendancePage() {
     return () => unsub();
   }, [currentUser]);
 
-  // ── Punch handlers ──────────────────────────────────────────────────────────
+  // ── Punch handlers (called after photo is captured) ─────────────────────────
 
-  async function handlePunchIn() {
+  async function handlePunchIn(photoBlob: Blob) {
     if (!currentUser) return;
     setSaving(true);
     setLocState('requesting');
 
+    // Run location + photo upload in parallel for speed
     let location: GeoPoint | null = null;
+    let photoUrl: string | null   = null;
+
     try {
-      location = await requestLocation();
+      [location, photoUrl] = await Promise.all([
+        requestLocation(),
+        storageService.uploadAttendancePhoto(currentUser.uid, today, 'in', photoBlob)
+          .catch(() => null), // photo failure is non-blocking
+      ]);
       setLocState('idle');
     } catch (err) {
       const reason = err as 'denied' | 'unavailable';
@@ -216,6 +425,7 @@ export default function AttendancePage() {
         hours: 0,
         status,
         punchInLocation: location,
+        ...(photoUrl ? { punchInPhoto: photoUrl } : {}),
         createdAt: serverTimestamp(),
       }, { merge: true });
       toast.success(
@@ -227,15 +437,21 @@ export default function AttendancePage() {
     finally { setSaving(false); }
   }
 
-  async function handlePunchOut() {
+  async function handlePunchOut(photoBlob: Blob) {
     if (!currentUser || !todayRec?.punchIn) return;
 
     setSaving(true);
     setLocState('requesting');
 
     let location: GeoPoint | null = null;
+    let photoUrl: string | null   = null;
+
     try {
-      location = await requestLocation();
+      [location, photoUrl] = await Promise.all([
+        requestLocation(),
+        storageService.uploadAttendancePhoto(currentUser.uid, today, 'out', photoBlob)
+          .catch(() => null),
+      ]);
       setLocState('idle');
     } catch (err) {
       const reason = err as 'denied' | 'unavailable';
@@ -249,7 +465,6 @@ export default function AttendancePage() {
       return;
     }
 
-
     const now   = nowHHMM();
     const hours = calcHours(todayRec.punchIn, now);
     try {
@@ -257,11 +472,21 @@ export default function AttendancePage() {
         punchOut: now,
         hours,
         punchOutLocation: location,
+        ...(photoUrl ? { punchOutPhoto: photoUrl } : {}),
         updatedAt: serverTimestamp(),
       }, { merge: true });
       toast.success(`Punched out at ${now} · ${hours}h logged 👍`);
     } catch { toast.error('Failed to punch out'); }
     finally { setSaving(false); }
+  }
+
+  // ── Camera callbacks ─────────────────────────────────────────────────────────
+
+  function onPhotoCaptured(blob: Blob) {
+    const type = cameraFor;
+    setCameraFor(null);
+    if (type === 'in')  handlePunchIn(blob);
+    if (type === 'out') handlePunchOut(blob);
   }
 
   // ── Stats (last 7 days) ────────────────────────────────────────────────────
@@ -478,7 +703,7 @@ export default function AttendancePage() {
               </div>
             ) : !isPunchedIn ? (
               <button
-                onClick={handlePunchIn}
+                onClick={() => setCameraFor('in')}
                 disabled={saving || isGettingLocation}
                 className="w-full py-4 rounded-2xl bg-[#1B2B5E] text-white font-black text-base hover:bg-[#2D4080] active:scale-[0.98] transition-all disabled:opacity-60 flex items-center justify-center gap-2.5 shadow-lg shadow-[#1B2B5E]/20"
               >
@@ -609,6 +834,15 @@ export default function AttendancePage() {
         </div>
       </div>
 
+      {/* ── Camera Selfie Modal ── */}
+      {cameraFor && (
+        <CameraCapture
+          punchType={cameraFor}
+          onCapture={onPhotoCaptured}
+          onCancel={() => setCameraFor(null)}
+        />
+      )}
+
       {/* ── Punch Out Confirmation (bottom sheet on mobile) ── */}
       {showPunchOutConfirm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center sm:items-center" onClick={() => setShowPunchOutConfirm(false)}>
@@ -644,7 +878,7 @@ export default function AttendancePage() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => { setShowPunchOutConfirm(false); handlePunchOut(); }}
+                  onClick={() => { setShowPunchOutConfirm(false); setCameraFor('out'); }}
                   disabled={saving}
                   className="flex-1 py-3.5 rounded-2xl bg-red-500 hover:bg-red-600 text-white text-sm font-black active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
                 >

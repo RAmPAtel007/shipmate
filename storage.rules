@@ -91,5 +91,17 @@ service firebase.storage {
       allow delete: if isSignedIn();
     }
 
+    // ── Attendance photos ──────────────────────────────────────────────────────
+    // Each employee can only upload photos under their own UID folder.
+    // Any signed-in user (including admins) can read them.
+
+    match /attendance-photos/{uid}/{filename} {
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn()
+                   && request.auth.uid == uid
+                   && isAllowedImageType()
+                   && isUnder2MB();
+    }
+
   }
 }

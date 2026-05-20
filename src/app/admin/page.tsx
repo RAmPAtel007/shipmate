@@ -713,11 +713,6 @@ export default function AdminDashboard() {
                       style={{ width: `${(dept.count / maxDeptCount) * 100}%` }}
                     />
                   </div>
-                  {dept.head && (
-                    <p className="text-[11px] text-gray-400">
-                      {dept.head.name.split(' ').map((n, i) => i === 0 ? `${n[0]}.` : n).join(' ')} · head
-                    </p>
-                  )}
                 </div>
               ))}
             </div>

@@ -206,6 +206,20 @@ export const storageService = {
     return directUpload(path, file, onProgress);
   },
 
+  // ── Attendance photo ───────────────────────────────────────────────────────
+
+  async uploadAttendancePhoto(
+    uid: string,
+    date: string,
+    type: 'in' | 'out',
+    blob: Blob,
+  ): Promise<string> {
+    const file = new File([blob], `${date}_${type}.jpg`, { type: 'image/jpeg' });
+    const path = `attendance-photos/${uid}/${date}_${type}.jpg`;
+    const { url } = await directUpload(path, file);
+    return url;
+  },
+
   // ── Delete ──────────────────────────────────────────────────────────────────
 
   async deleteFile(storagePath: string): Promise<void> {
