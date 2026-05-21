@@ -713,28 +713,29 @@ function EmployeeDetailPanel({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
             <button onClick={onEdit}
-              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-lg">
-              <Pencil size={11}/>Edit
+              title="Edit employee"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2 sm:px-2.5 py-1.5 rounded-lg">
+              <Pencil size={11}/><span className="hidden sm:inline">Edit</span>
             </button>
             <button
               onClick={handleSendReset}
               disabled={resetSending}
               title={`Send password reset to ${user.email}`}
-              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-lg disabled:opacity-50"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] font-semibold transition-colors bg-white/10 hover:bg-white/20 px-2 sm:px-2.5 py-1.5 rounded-lg disabled:opacity-50"
             >
               {resetSending ? <Loader2 size={11} className="animate-spin"/> : <Mail size={11}/>}
-              <span>Pwd</span>
+              <span className="hidden sm:inline">Pwd</span>
             </button>
             <button
               onClick={() => setConfirmDelete(true)}
               title="Delete employee"
-              className="flex items-center gap-1 text-red-300 hover:text-white text-[11px] font-semibold transition-colors bg-red-500/20 hover:bg-red-500/50 px-2.5 py-1.5 rounded-lg"
+              className="flex items-center gap-1 text-red-300 hover:text-white text-[11px] font-semibold transition-colors bg-red-500/20 hover:bg-red-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg"
             >
               <Trash2 size={11}/>
             </button>
-            <button onClick={onClose} className="text-white/50 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
+            <button onClick={onClose} aria-label="Close" className="text-white/50 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
               <X size={16}/>
             </button>
           </div>
@@ -752,20 +753,19 @@ function EmployeeDetailPanel({
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-100 flex-shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Tabs — horizontally scrollable, no shrinking */}
+      <div className="flex border-b border-gray-100 flex-shrink-0 overflow-x-auto overflow-y-hidden [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 min-w-0 px-2 py-2.5 text-[11px] font-semibold whitespace-nowrap transition-all border-b-2 ${
+            className={`flex-shrink-0 px-4 py-2.5 text-[11px] font-semibold whitespace-nowrap transition-all border-b-2 ${
               tab === t.id
                 ? 'border-[#1B2B5E] text-[#1B2B5E] bg-[#1B2B5E]/5'
                 : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'
             }`}
           >
-            <span className="hidden sm:inline">{t.label}</span>
-            <span className="sm:hidden">{t.shortLabel}</span>
+            {t.label}
           </button>
         ))}
       </div>

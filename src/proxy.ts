@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 
 const PUBLIC_PATHS = [
   '/login',
+  '/clockii',
   '/_next',
   '/api',
   '/icons',
@@ -24,10 +25,14 @@ export function proxy(request: NextRequest) {
   const session = request.cookies.get('shipmate_session')?.value;
   const isAdmin = request.cookies.get('shipmate_admin')?.value === '1';
 
-  // Root redirect
+  // Root: Clockii marketing landing.
+  // Logged-out visitors see the landing page (no redirect).
+  // Logged-in users skip the marketing and jump straight to their dashboard.
   if (pathname === '/') {
-    if (!session) return NextResponse.redirect(new URL('/login', request.url));
-    return NextResponse.redirect(new URL(isAdmin ? '/admin' : '/home', request.url));
+    if (session) {
+      return NextResponse.redirect(new URL(isAdmin ? '/admin' : '/home', request.url));
+    }
+    return NextResponse.next();
   }
 
   // Protect /admin routes — require session + admin cookie

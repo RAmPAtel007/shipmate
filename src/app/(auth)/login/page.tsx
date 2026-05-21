@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Eye, EyeOff,
-  MessageSquare, Calendar, Bell, FolderOpen, Users,
+  MessageSquare, Calendar, CalendarDays, Bell, FolderOpen, Users,
   Clock, DollarSign, LogIn, AlertCircle, Mail, CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +14,7 @@ const FEATURES = [
   { icon: MessageSquare, label: 'Team Chat',          desc: 'Real-time messaging & channels' },
   { icon: Clock,         label: 'Attendance',         desc: 'Punch in/out & live tracking' },
   { icon: Calendar,      label: 'Leave Management',   desc: 'Apply, track & approve requests' },
+  { icon: CalendarDays,  label: 'Calendar',           desc: 'Team holidays, events & schedules' },
   { icon: DollarSign,    label: 'Payroll & Payslips', desc: 'Payroll history & digital payslips' },
   { icon: Bell,          label: 'Announcements',      desc: 'Push notifications company-wide' },
   { icon: FolderOpen,    label: 'Documents',          desc: 'Secure shared file storage' },
