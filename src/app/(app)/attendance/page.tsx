@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LogIn, LogOut, Clock, CheckCircle2, Calendar,
   Loader2, TrendingUp, Timer, Zap, MapPin, AlertTriangle,
@@ -144,9 +145,20 @@ function MobileCameraCapture({
   const fileRef  = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [file,    setFile]    = useState<File | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const label    = punchType === 'in' ? 'Punch In' : 'Punch Out';
   const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
+
+  // Portal mount — wait until client-side so document.body exists
+  useEffect(() => { setMounted(true); }, []);
+
+  // Lock body scroll while modal is open (prevents iOS background scroll bleed-through)
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
   // Open camera automatically on mount
   useEffect(() => {
@@ -170,29 +182,46 @@ function MobileCameraCapture({
 
   function confirmPhoto() { if (file) onCapture(file); }
 
-  return (
-    <div className="fixed inset-0 bg-black z-[60] flex flex-col">
+  if (!mounted) return null;
+
+  // Modal — portal'd to document.body so it escapes any parent containing block
+  // (transforms, filters, contain, etc. on ancestors won't trap `position: fixed`)
+  const modal = (
+    <div
+      className="bg-black flex flex-col"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        // Use dynamic viewport height — accounts for iOS Safari URL bar showing/hiding
+        height: '100dvh',
+        width: '100vw',
+        zIndex: 9999,
+      }}
+    >
       {/* Hidden native camera input */}
       <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleFile} />
 
       {/* Top bar — extra top padding for iPhone notch/status bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/70 flex-shrink-0"
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <button onClick={onCancel} className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white">
-          <X size={18} />
+        <button onClick={onCancel} aria-label="Close" className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white active:scale-95 transition-transform">
+          <X size={20} />
         </button>
         <p className="text-white font-bold text-sm tracking-wide">{label} · Take a Selfie</p>
-        <div className="w-9" />
+        <div className="w-10" />
       </div>
 
-      {/* Body */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6">
+      {/* Body — min-h-0 lets the flex child shrink so controls always fit at bottom */}
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 py-4 gap-4 overflow-y-auto">
         {preview ? (
           <>
-            <div className="w-60 h-60 rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
+            <div className="w-[min(70vw,260px)] aspect-square rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
               <img src={preview} alt="selfie" className="w-full h-full object-cover" />
             </div>
-            <p className="text-white/50 text-sm">Looking good? Use this or retake.</p>
+            <p className="text-white/60 text-sm text-center">Looking good? Use this or retake.</p>
           </>
         ) : (
           <>
@@ -205,7 +234,7 @@ function MobileCameraCapture({
             </div>
             <button
               onClick={() => fileRef.current?.click()}
-              className="px-6 py-3 rounded-2xl bg-white/10 text-white text-sm font-semibold"
+              className="px-6 py-3 rounded-2xl bg-white/10 text-white text-sm font-semibold active:scale-95 transition-transform"
             >
               Open Camera
             </button>
@@ -213,24 +242,38 @@ function MobileCameraCapture({
         )}
       </div>
 
-      {/* Controls — extra bottom padding for iPhone home indicator */}
-      <div className="flex-shrink-0 bg-black/70 px-6 pt-6 pb-8 flex items-center justify-center gap-4"
-        style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
+      {/* Controls — sticks to bottom, with home-indicator safe-area padding.
+          flex-shrink-0 + explicit pb ensures buttons are always above iOS home bar. */}
+      <div className="flex-shrink-0 bg-black/80 backdrop-blur px-4 pt-4 flex items-center justify-center gap-3"
+        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
         {preview ? (
           <>
-            <button onClick={retake} className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">
+            <button
+              onClick={retake}
+              className="flex-1 max-w-[160px] flex items-center justify-center gap-2 px-5 py-4 rounded-2xl bg-white/10 text-white font-semibold text-sm active:scale-95 transition-transform"
+            >
               <RotateCcw size={16} /> Retake
             </button>
-            <button onClick={confirmPhoto} className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-all`}>
+            <button
+              onClick={confirmPhoto}
+              className={`flex-1 max-w-[200px] flex items-center justify-center gap-2 px-6 py-4 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-transform`}
+            >
               <Check size={18} /> Use Photo
             </button>
           </>
         ) : (
-          <button onClick={onCancel} className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">Cancel</button>
+          <button
+            onClick={onCancel}
+            className="flex-1 max-w-[200px] px-6 py-4 rounded-2xl bg-white/10 text-white font-semibold text-sm active:scale-95 transition-transform"
+          >
+            Cancel
+          </button>
         )}
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 // ── Desktop / Laptop ─────────────────────────────────────────────────────────
@@ -246,6 +289,17 @@ function DesktopCameraCapture({
   const [camState,   setCamState]   = useState<'starting'|'live'|'captured'|'error'>('starting');
   const [preview,    setPreview]    = useState<string | null>(null);
   const [permDenied, setPermDenied] = useState(false);
+  const [mounted,    setMounted]    = useState(false);
+
+  // Portal mount — wait until client-side
+  useEffect(() => { setMounted(true); }, []);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
   const label    = punchType === 'in' ? 'Punch In' : 'Punch Out';
   const accentBg = punchType === 'in' ? 'bg-[#1B2B5E]' : 'bg-red-500';
@@ -356,8 +410,22 @@ function DesktopCameraCapture({
     );
   }
 
-  return (
-    <div className="fixed inset-0 bg-black z-[60] flex flex-col">
+  if (!mounted) return null;
+
+  const modal = (
+    <div
+      className="bg-black flex flex-col"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '100dvh',
+        width: '100vw',
+        zIndex: 9999,
+      }}
+    >
       {/* Hidden file input fallback */}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
 
@@ -424,24 +492,41 @@ function DesktopCameraCapture({
         <canvas ref={canvasRef} className="hidden" />
       </div>
 
-      <div className="flex-shrink-0 bg-black/70 px-6 pt-6 pb-8 flex items-center justify-center gap-8"
-        style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
+      <div className="flex-shrink-0 bg-black/80 backdrop-blur px-4 pt-4 flex items-center justify-center gap-4 sm:gap-8"
+        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
         {camState === 'live' ? (
-          <button onClick={takePhoto} className="w-20 h-20 rounded-full bg-white active:scale-95 transition-transform shadow-xl flex items-center justify-center">
+          <button onClick={takePhoto} aria-label="Take photo" className="w-20 h-20 rounded-full bg-white active:scale-95 transition-transform shadow-xl flex items-center justify-center">
             <div className="w-[68px] h-[68px] rounded-full bg-white border-4 border-gray-300" />
           </button>
         ) : camState === 'captured' ? (
           <>
-            <button onClick={retake} className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20"><RotateCcw size={16} /> Retake</button>
-            <button onClick={confirmPhoto} className={`flex items-center gap-2 px-8 py-3 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95`}><Check size={18} /> Use Photo</button>
+            <button
+              onClick={retake}
+              className="flex-1 max-w-[180px] flex items-center justify-center gap-2 px-5 py-4 rounded-2xl bg-white/10 text-white font-semibold text-sm hover:bg-white/20 active:scale-95 transition-transform"
+            >
+              <RotateCcw size={16} /> Retake
+            </button>
+            <button
+              onClick={confirmPhoto}
+              className={`flex-1 max-w-[220px] flex items-center justify-center gap-2 px-6 py-4 rounded-2xl ${accentBg} text-white font-black text-sm shadow-lg active:scale-95 transition-transform`}
+            >
+              <Check size={18} /> Use Photo
+            </button>
           </>
         ) : camState === 'error' ? (
-          <button onClick={() => { stopStream(); onCancel(); }} className="px-6 py-3 rounded-2xl bg-white/10 text-white font-semibold text-sm">Cancel</button>
+          <button
+            onClick={() => { stopStream(); onCancel(); }}
+            className="flex-1 max-w-[220px] px-6 py-4 rounded-2xl bg-white/10 text-white font-semibold text-sm active:scale-95 transition-transform"
+          >
+            Cancel
+          </button>
         ) : null}
       </div>
       {camState === 'live' && <p className="text-center text-white/30 text-[11px] pb-3 flex-shrink-0">Position your face in the circle and tap the shutter</p>}
     </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
