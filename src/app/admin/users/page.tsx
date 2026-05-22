@@ -1807,6 +1807,7 @@ export default function AdminUsersPage() {
   const [search, setSearch]         = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy]         = useState<'name-asc' | 'name-desc' | 'dept' | 'status' | 'newest'>('name-asc');
   const [selectedUser, setSelectedUser] = useState<ShipmateUser | null>(null);
   const [editingUser, setEditingUser]   = useState<ShipmateUser | null>(null);
   const [showAddDept, setShowAddDept]   = useState(false);
@@ -1862,13 +1863,34 @@ export default function AdminUsersPage() {
     return c;
   }, [users]);
 
-  const filtered = useMemo(() => users.filter(u => {
-    const q = search.toLowerCase();
-    const matchS = !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.department?.toLowerCase().includes(q);
-    const matchD = deptFilter === 'all' || u.department === deptFilter;
-    const matchSt = statusFilter === 'all' || ((u as any).status ?? 'active') === statusFilter;
-    return matchS && matchD && matchSt;
-  }), [users, search, deptFilter, statusFilter]);
+  const filtered = useMemo(() => {
+    const STATUS_ORDER = ['active', 'onboarding', 'on_leave', 'offboarding', 'inactive'];
+    const list = users.filter(u => {
+      const q = search.toLowerCase();
+      const matchS = !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.department?.toLowerCase().includes(q);
+      const matchD = deptFilter === 'all' || u.department === deptFilter;
+      const matchSt = statusFilter === 'all' || ((u as any).status ?? 'active') === statusFilter;
+      return matchS && matchD && matchSt;
+    });
+    return [...list].sort((a, b) => {
+      switch (sortBy) {
+        case 'name-asc':  return a.name.localeCompare(b.name);
+        case 'name-desc': return b.name.localeCompare(a.name);
+        case 'dept':      return (a.department ?? '').localeCompare(b.department ?? '') || a.name.localeCompare(b.name);
+        case 'status': {
+          const ai = STATUS_ORDER.indexOf((a as any).status ?? 'active');
+          const bi = STATUS_ORDER.indexOf((b as any).status ?? 'active');
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi) || a.name.localeCompare(b.name);
+        }
+        case 'newest': {
+          const ad = (a as any).joinDate ?? (a as any).joinedAt ?? '';
+          const bd = (b as any).joinDate ?? (b as any).joinedAt ?? '';
+          return bd.localeCompare(ad) || a.name.localeCompare(b.name);
+        }
+        default: return 0;
+      }
+    });
+  }, [users, search, deptFilter, statusFilter, sortBy]);
 
   function usersInDept(deptId: string) {
     return users.filter(u => u.department === deptId || (u as any).slug === deptId);
@@ -1972,6 +1994,15 @@ export default function AdminUsersPage() {
                   <option value="onboarding">Onboarding</option>
                   <option value="offboarding">Offboarding</option>
                   <option value="inactive">Inactive</option>
+                </select>
+
+                <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                  className="bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-[#1B2B5E]">
+                  <option value="name-asc">Name A → Z</option>
+                  <option value="name-desc">Name Z → A</option>
+                  <option value="dept">Department</option>
+                  <option value="status">Status</option>
+                  <option value="newest">Newest First</option>
                 </select>
 
                 <span className="ml-auto text-xs text-gray-400">{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</span>

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Calendar, MessageSquare, Users, Megaphone,
   Clock, Gift, Bell, CheckCircle2, ArrowRight,
-  FileText, ChevronRight, AlertCircle, Pin, CalendarDays,
+  FileText, ChevronRight, AlertCircle, Pin, CalendarDays, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
@@ -136,14 +136,20 @@ export default function HomePage() {
   const dayName   = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const dateStr   = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
+  // Mirror the same tabAccess logic used by DesktopSidebar & MobileNav so
+  // Quick Actions only show what the admin has enabled for this employee.
+  const tabAccess = currentUser?.tabAccess ?? {};
+
   const QUICK_ACTIONS = [
-    { label: 'Chat',        desc: 'Messages & DMs',    icon: MessageSquare, href: '/chat',               iconBg: 'bg-[#1B2B5E]',     iconColor: 'text-white' },
-    { label: 'Apply Leave', desc: 'Request time off',  icon: Calendar,      href: '/leaves?action=apply', iconBg: 'bg-emerald-500',   iconColor: 'text-white' },
-    { label: 'People',      desc: 'Team directory',    icon: Users,         href: '/people',               iconBg: 'bg-violet-500',    iconColor: 'text-white' },
-    { label: 'Documents',   desc: 'Files & folders',   icon: FileText,      href: '/documents',            iconBg: 'bg-orange-500',    iconColor: 'text-white' },
-    ...(can.postAnnouncements
-      ? [{ label: 'Announce', desc: 'Broadcast message', icon: Megaphone, href: '/announcements', iconBg: 'bg-rose-500', iconColor: 'text-white' }]
-      : []),
+    // Apply Leave — always shown (default tab, not gated)
+    { label: 'Apply Leave', desc: 'Request time off',  icon: Calendar,      href: '/leaves?action=apply', iconBg: 'bg-emerald-500',  iconColor: 'text-white' },
+    // Optional tabs — only shown if admin has enabled them
+    ...(tabAccess.chat      ? [{ label: 'Chat',      desc: 'Messages & DMs',   icon: MessageSquare, href: '/chat',       iconBg: 'bg-[#1B2B5E]',  iconColor: 'text-white' }] : []),
+    ...(tabAccess.people    ? [{ label: 'People',    desc: 'Team directory',   icon: Users,         href: '/people',     iconBg: 'bg-violet-500', iconColor: 'text-white' }] : []),
+    ...(tabAccess.documents ? [{ label: 'Documents', desc: 'Files & folders',  icon: FileText,      href: '/documents',  iconBg: 'bg-orange-500', iconColor: 'text-white' }] : []),
+    ...(tabAccess.payslip   ? [{ label: 'Payslip',  desc: 'View my payslips', icon: Receipt,       href: '/payslip',    iconBg: 'bg-teal-500',   iconColor: 'text-white' }] : []),
+    // Announce — role-based, not a tabAccess tab
+    ...(can.postAnnouncements ? [{ label: 'Announce', desc: 'Broadcast message', icon: Megaphone, href: '/announcements', iconBg: 'bg-rose-500', iconColor: 'text-white' }] : []),
   ];
 
   return (

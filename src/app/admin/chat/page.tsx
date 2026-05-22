@@ -868,9 +868,20 @@ function AdminChatSidebar({
   const deptChannels   = channels.filter(c => c.type === 'department');
 
   // Build sorted list of all team members (excluding self)
+  // Order: 1) unread DMs first  2) most recent DM conversation  3) alphabetical
   const allMembers = Array.from(userMap.entries())
     .filter(([uid]) => uid !== currentUserId)
-    .sort(([, a], [, b]) => (a ?? '').localeCompare(b ?? ''));
+    .sort(([uidA, nameA], [uidB, nameB]) => {
+      const dmA = channels.find(c => c.type === 'dm' && c.members.includes(uidA) && c.members.includes(currentUserId));
+      const dmB = channels.find(c => c.type === 'dm' && c.members.includes(uidB) && c.members.includes(currentUserId));
+      const unreadA = dmA ? (unreadByChannel[dmA.id] ?? 0) : 0;
+      const unreadB = dmB ? (unreadByChannel[dmB.id] ?? 0) : 0;
+      if (unreadA !== unreadB) return unreadB - unreadA;
+      const timeA = dmA ? safeDate((dmA as any).lastMessageAt).getTime() : 0;
+      const timeB = dmB ? safeDate((dmB as any).lastMessageAt).getTime() : 0;
+      if (timeA !== timeB) return timeB - timeA;
+      return (nameA ?? '').localeCompare(nameB ?? '');
+    });
 
   return (
     <div className="w-56 bg-white border-r border-gray-100 flex flex-col h-full flex-shrink-0">
